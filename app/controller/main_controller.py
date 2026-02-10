@@ -441,7 +441,7 @@ class MainController(QObject):
             self.view.showStatusMessage(f"加载校准失败：{error}", durationMs=2600, isWarning=True)
 
     def openDataFile(self) -> None:
-        """打开历史文件（当前版本仅提供文件选择与提示）。"""
+        """打开历史波形文件并回放到当前界面。"""
         filePath, _ = QFileDialog.getOpenFileName(
             self.view,
             "打开检测数据",
@@ -450,7 +450,70 @@ class MainController(QObject):
         )
         if not filePath:
             return
-        self.view.showStatusMessage(f"已选择文件：{Path(filePath).name}")
+        inputPath = Path(filePath)
+        try:
+            if inputPath.suffix.lower() == ".csv":
+                loadedParameters, timeAxisUs, rawSignal, envelopeSignal = self._loadWaveformFromCsv(inputPath)
+            else:
+                loadedParameters, timeAxisUs, rawSignal, envelopeSignal = self._loadWaveformFromJson(inputPath)
+
+            if timeAxisUs.size < 2 or rawSignal.size != timeAxisUs.size or envelopeSignal.size != timeAxisUs.size:
+                raise ValueError("波形数据维度无效，无法加载。")
+
+            # 加载历史波形时暂停实时采集，避免下一帧立即覆盖。
+            wasRunning = self.acquisitionTimer.isActive()
+            if wasRunning:
+                self.stopAcquisition()
+
+            modelParameters = {
+                key: float(value)
+                for key, value in loadedParameters.items()
+                if key in self.model.parameters
+            }
+            if modelParameters:
+                self.model.updateParameters(modelParameters)
+
+            refreshIntervalMs = loadedParameters.get("refreshIntervalMs")
+            if refreshIntervalMs is not None:
+                self.acquisitionTimer.setInterval(int(np.clip(float(refreshIntervalMs), 30.0, 2000.0)))
+
+            # 同步模型缓存，使定量计算和导出逻辑与加载数据一致。
+            self.model.pointCount = int(timeAxisUs.size)
+            self.model.timeAxisUs = timeAxisUs.astype(np.float32)
+            self.model.timeAxisSec = (self.model.timeAxisUs * 1e-6).astype(np.float32)
+            historyRows = int(self.model.parameters["historyFrames"])
+            self.model.bScanMatrix = np.zeros((historyRows, self.model.pointCount), dtype=np.float32)
+            self.model.bScanMatrix[-1, :] = np.clip(envelopeSignal, 0.0, 1.2).astype(np.float32)
+
+            frameData = {
+                "timeAxisUs": self.model.timeAxisUs.copy(),
+                "rawSignal": rawSignal.astype(np.float32),
+                "envelopeSignal": envelopeSignal.astype(np.float32),
+                "thresholdLevel": float(self.model.parameters["thresholdLevel"]),
+                "gateRangeUs": (
+                    float(self.model._depthMmToTimeSec(self.model.parameters["gateStartMm"]) * 1e6),
+                    float(self.model._depthMmToTimeSec(self.model.parameters["gateEndMm"]) * 1e6),
+                ),
+                "peakAmplitude": 0.0,
+                "peakTimeUs": 0.0,
+                "defectDetected": False,
+                "defectDistanceMm": None,
+                "confidence": 0.0,
+                "frameCounter": self.model.frameCounter,
+                "bScanMatrix": self.model.bScanMatrix.copy(),
+            }
+            self.lastFrameData = frameData
+
+            self.view.loadParameters(self.model.getParameters())
+            self.view.setAcquisitionIntervalMs(self.acquisitionTimer.interval())
+            self.view.setCalibrationState(
+                soundVelocityMps=self.model.parameters["soundVelocityMps"],
+                probeDelayUs=self.model.parameters.get("probeDelayUs", 0.0),
+            )
+            self._renderCurrentFrame(frameData)
+            self.view.showStatusMessage(f"已加载波形文件：{inputPath.name}", 2000)
+        except Exception as error:  # pragma: no cover - GUI 场景下保底异常提示
+            self.view.showStatusMessage(f"加载数据失败：{error}", durationMs=3200, isWarning=True)
 
     def saveWaveformData(self) -> None:
         """
@@ -516,7 +579,12 @@ class MainController(QObject):
                 key=lambda item: int(item.get("recordUid", 0)),
             )
             hasDefect = bool(defectRecords) or bool(self.lastQuantitativeData["gateTriggered"])
-            defectDepthMm = defectRecords[-1]["depthMm"] if defectRecords else self.lastQuantitativeData["depthMm"]
+            if defectRecords:
+                defectDepthMm = defectRecords[-1]["depthMm"]
+            elif bool(self.lastQuantitativeData["gateTriggered"]):
+                defectDepthMm = self.lastQuantitativeData["depthMm"]
+            else:
+                defectDepthMm = None
             decisionResult = "不合格" if hasDefect else "合格"
             detectionTimeText = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
@@ -713,7 +781,7 @@ class MainController(QObject):
         - 若无超限峰，返回时间窗内最大峰（triggered=False）。
         """
         gateStartUs, gateEndUs, _, thresholdAmplitude = self.view.getGateConfig()
-        thresholdAmplitude = float(np.clip(thresholdAmplitude, -0.2, 1.5))
+        thresholdAmplitude = float(np.clip(thresholdAmplitude, 0.0, 1.5))
         if gateEndUs < gateStartUs:
             gateStartUs, gateEndUs = gateEndUs, gateStartUs
 
@@ -787,6 +855,27 @@ class MainController(QObject):
             encoding="utf-8",
         )
 
+    def _loadWaveformFromJson(self, inputPath: Path) -> tuple[dict[str, float], np.ndarray, np.ndarray, np.ndarray]:
+        """从 JSON 文件读取波形与参数。"""
+        payload = json.loads(inputPath.read_text(encoding="utf-8"))
+        waveformSection = payload.get("waveform", {})
+        if not isinstance(waveformSection, dict):
+            raise ValueError("JSON 格式无效：缺少 waveform 段。")
+
+        parametersRaw = payload.get("parameters", {})
+        parameters: dict[str, float] = {}
+        if isinstance(parametersRaw, dict):
+            for key, value in parametersRaw.items():
+                try:
+                    parameters[str(key)] = float(value)
+                except (TypeError, ValueError):
+                    continue
+
+        timeAxisUs = np.asarray(waveformSection.get("timeUs", []), dtype=np.float32)
+        rawSignal = np.asarray(waveformSection.get("rawSignal", []), dtype=np.float32)
+        envelopeSignal = np.asarray(waveformSection.get("envelopeSignal", []), dtype=np.float32)
+        return parameters, timeAxisUs, rawSignal, envelopeSignal
+
     def _saveWaveformAsCsv(self, outputPath: Path) -> None:
         """将当前波形和参数保存为 CSV。"""
         assert self.lastFrameData is not None
@@ -808,6 +897,46 @@ class MainController(QObject):
             csvWriter.writerow(["time_us", "raw_signal", "envelope_signal"])
             for timeUs, rawValue, envelopeValue in zip(timeArrayUs, rawSignal, envelopeSignal):
                 csvWriter.writerow([f"{timeUs:.6f}", f"{rawValue:.6f}", f"{envelopeValue:.6f}"])
+
+    def _loadWaveformFromCsv(self, inputPath: Path) -> tuple[dict[str, float], np.ndarray, np.ndarray, np.ndarray]:
+        """从 CSV 文件读取波形与参数。"""
+        parameters: dict[str, float] = {}
+        timeValues: list[float] = []
+        rawValues: list[float] = []
+        envelopeValues: list[float] = []
+        dataSectionStarted = False
+
+        with inputPath.open("r", encoding="utf-8", newline="") as csvFile:
+            csvReader = csv.reader(csvFile)
+            for row in csvReader:
+                if not row:
+                    continue
+                headValue = str(row[0]).strip()
+                if not dataSectionStarted:
+                    if headValue == "#PARAM" and len(row) >= 3:
+                        try:
+                            parameters[str(row[1]).strip()] = float(row[2])
+                        except (TypeError, ValueError):
+                            continue
+                        continue
+                    if headValue.lower() == "time_us":
+                        dataSectionStarted = True
+                        continue
+                    continue
+
+                if len(row) < 3:
+                    continue
+                try:
+                    timeValues.append(float(row[0]))
+                    rawValues.append(float(row[1]))
+                    envelopeValues.append(float(row[2]))
+                except (TypeError, ValueError):
+                    continue
+
+        timeAxisUs = np.asarray(timeValues, dtype=np.float32)
+        rawSignal = np.asarray(rawValues, dtype=np.float32)
+        envelopeSignal = np.asarray(envelopeValues, dtype=np.float32)
+        return parameters, timeAxisUs, rawSignal, envelopeSignal
 
     def _buildReportHtmlTemplate(
         self,

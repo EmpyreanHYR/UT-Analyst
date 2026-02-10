@@ -97,6 +97,7 @@ class MainWindow(QMainWindow):
         self.gridVisible = True
         self.displayUnitMode = "us"
         self.cursorLabelVisible = True
+        self.autoScaleYEnabled = False
         self.currentSoundVelocityMps = 5900.0
         self.currentProbeDelayUs = 0.0
         self.lastTimeAxisUs = np.array([], dtype=np.float32)
@@ -520,7 +521,7 @@ class MainWindow(QMainWindow):
         self.gateWidthUsSpinBox.setSuffix(" us")
 
         self.gateLevelSpinBox = QDoubleSpinBox(gatePanelGroup)
-        self.gateLevelSpinBox.setRange(-0.20, 1.50)
+        self.gateLevelSpinBox.setRange(0.00, 1.50)
         self.gateLevelSpinBox.setDecimals(3)
         self.gateLevelSpinBox.setSingleStep(0.01)
         self.gateLevelSpinBox.setValue(0.80)
@@ -808,15 +809,21 @@ class MainWindow(QMainWindow):
             soundVelocity = self.customVelocitySpinBox.value()
 
         scanDepth = self.rangeSpinBox.value()
+        gateStartUs, gateEndUs, _, _ = self.getGateConfig()
+        gateStartMm = self._toDepthMm(gateStartUs)
+        gateEndMm = self._toDepthMm(gateEndUs)
+        if gateEndMm < gateStartMm:
+            gateStartMm, gateEndMm = gateEndMm, gateStartMm
+        gateEndMm = max(gateStartMm + 0.01, gateEndMm)
         return {
             "gainDb": self.gainSpinBox.value(),
             "scanDepthMm": scanDepth,
             "pulseFrequencyHz": self.pulseFrequencyMhzSpinBox.value() * 1_000_000.0,
             "soundVelocityMps": soundVelocity,
             "refreshIntervalMs": self.refreshIntervalMsSpinBox.value(),
-            # 使用全量声程作为默认检测门，便于示例工程快速观察效果。
-            "gateStartMm": 0.0,
-            "gateEndMm": max(1.0, scanDepth),
+            # 将当前闸门线位置同步到模型参数，保证保存/加载与报告语义一致。
+            "gateStartMm": float(np.clip(gateStartMm, 0.0, scanDepth)),
+            "gateEndMm": float(np.clip(gateEndMm, 0.01, scanDepth)),
         }
 
     def loadParameters(self, parameters: dict[str, float]) -> None:
@@ -975,7 +982,11 @@ class MainWindow(QMainWindow):
             xMinUs = float(timeAxisUs[0])
             xMaxUs = float(timeAxisUs[-1])
             self.aScanPlot.setXRange(xMinUs, xMaxUs, padding=0.01)
-            self.aScanPlot.setYRange(-0.2, 1.3, padding=0.02)
+            if self.autoScaleYEnabled:
+                self.aScanPlot.enableAutoRange(axis="y", enable=True)
+            else:
+                self.aScanPlot.enableAutoRange(axis="y", enable=False)
+                self.aScanPlot.setYRange(-1.3, 1.3, padding=0.02)
             self.cursorLineA.setBounds((xMinUs, xMaxUs))
             self.cursorLineB.setBounds((xMinUs, xMaxUs))
             self._updateCursorReadout()
@@ -1025,7 +1036,7 @@ class MainWindow(QMainWindow):
         # 更新线条可拖拽边界。
         self.gateStartLine.setBounds((xMinUs, xMaxUs))
         self.gateEndLine.setBounds((xMinUs, xMaxUs))
-        self.thresholdLine.setBounds((-0.20, 1.50))
+        self.thresholdLine.setBounds((0.00, 1.50))
         self.cursorLineA.setBounds((xMinUs, xMaxUs))
         self.cursorLineB.setBounds((xMinUs, xMaxUs))
 
@@ -1088,8 +1099,9 @@ class MainWindow(QMainWindow):
 
     def _autoScalePlot(self) -> None:
         """执行波形自动缩放。"""
-        self.aScanPlot.enableAutoRange(axis="xy", enable=True)
-        self.showStatusMessage("波形已自动缩放。", 1200)
+        self.autoScaleYEnabled = True
+        self.aScanPlot.enableAutoRange(axis="y", enable=True)
+        self.showStatusMessage("已开启Y轴自动缩放。", 1200)
 
     def _toggleGridVisibility(self, isVisible: bool) -> None:
         """切换绘图区网格显示状态。"""
