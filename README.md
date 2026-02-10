@@ -13,6 +13,7 @@
 ## 1. 当前能力概览
 
 ### 1.1 核心检测能力（P0）
+
 - 实时采集控制：`开始检测`、`停止检测`、`冻结`、`单次采样`
 - 波形辅助：`峰值保持`、`参考波形捕获/清除`
 - 触发模式：`自动`、`闸门触发`
@@ -23,6 +24,7 @@
 - 判定一致：有缺陷记录或当前触发即判 `不合格`
 
 ### 1.2 数据追溯能力
+
 - 缺陷列表支持删除、清空、重编号
 - 每条缺陷记录自动抓取对应波形截图
 - 报告导出为 `HTML`，包含总览图 + 缺陷分项截图
@@ -30,15 +32,18 @@
 ## 2. 环境与启动
 
 ### 2.1 依赖环境
+
 - Python：`3.10+`
 - 依赖：`requirements.txt`
 
 ### 2.2 安装依赖
+
 ```bash
 pip install -r requirements.txt
 ```
 
 ### 2.3 启动程序
+
 ```bash
 python main.py
 ```
@@ -48,24 +53,36 @@ python main.py
 本仓库已内置“软件使用说明书” LaTeX 模板，并已按本项目内容补齐正文，可用于软著材料编写与导出。
 
 - 入口文件：`copyright-of-computer-software_latex_template_V7.0/main.tex`
-- 说明：模板目录内如存在 `main.pdf`，可能为历史示例文件，请以 `main.tex` 重新编译输出为准
 - 正文文件：
+
   - `copyright-of-computer-software_latex_template_V7.0/texfile/1_introduction.tex`
   - `copyright-of-computer-software_latex_template_V7.0/texfile/2_implosion.tex`
   - `copyright-of-computer-software_latex_template_V7.0/texfile/3_summary.tex`
-- 作者信息：在 `copyright-of-computer-software_latex_template_V7.0/main.tex` 中修改 `\PureAuthors`（已改为单作者占位，便于替换）
-- 截图占位：说明书中的截图位置已用 LaTeX 注释标出（不强制提供图片也可先成稿）
+- 截图占位：说明书中的截图位置已用 LaTeX 注释标出
 
 ### 3.1 导出 PDF（本地需安装 XeLaTeX）
+
 在 `copyright-of-computer-software_latex_template_V7.0/` 目录执行：
+
 ```bash
 xelatex main.tex
 xelatex main.tex
 ```
 
+说明：
+
+- 若编译报错 `SimSun/SimHei font cannot be found`：已在模板中加入字体回退（macOS 通常会回退到 `Songti SC/Heiti SC`），也可自行安装宋体/黑体后再编译以获得更一致的版式。
+- 若遇到权限/缓存目录问题（例如 TeX 尝试写入 `~/Library/texlive` 失败），可临时指定可写目录：
+
+```bash
+TEXMFVAR=/tmp/texmf-var TEXMFHOME=/tmp/texmf-home xelatex main.tex
+TEXMFVAR=/tmp/texmf-var TEXMFHOME=/tmp/texmf-home xelatex main.tex
+```
+
 ## 4. 界面与控件说明
 
 ### 4.1 主界面布局
+
 - 顶部菜单：`文件(File)`、`设置(Settings)`、`视图(View)`、`帮助(Help)`
 - 工具栏：打开、保存、开始、停止、冻结、单次、生成报告
 - 中央区域：
@@ -80,6 +97,7 @@ xelatex main.tex
   - 校准区：当前声速、零点延迟
 
 ### 4.2 波形图交互
+
 - 右键菜单（中文）：
   - 自动缩放波形
   - 闸门复位
@@ -95,42 +113,50 @@ xelatex main.tex
 ## 5. 可操作事项（建议按顺序）
 
 ### 5.1 基础检测流程
+
 1. 点击 `开始检测`
 2. 调整 `增益/声程/频率/刷新间隔/声速`
 3. 点击 `应用参数`
 4. 拖动闸门与门限，观察峰值标记与右侧定量结果
 
 ### 5.2 冻结与单次采样
+
 1. 点击 `冻结` 暂停画面更新（便于精读当前波形）
 2. 点击 `单次采样` 获取一帧新波形
 3. 取消 `冻结` 恢复实时刷新
 
 ### 5.3 参考波形与峰值保持
+
 1. 在稳定状态点击 `捕获参考`
 2. 开启 `峰值保持` 观察包络上包络轨迹
 3. 必要时点击 `清除参考`，关闭 `峰值保持`
 
 ### 5.4 触发模式
+
 1. `自动`：每个采样周期都刷新显示
 2. `闸门触发`：仅当闸门内达到触发条件时更新显示（模拟触发采样）
 
 ### 5.5 游标读数
+
 1. 拖动波形图中的 `A/B` 游标线
 2. 在右侧查看 `A`、`B`、`差值Δ`、`深度差Δd`
 3. 切换 `显示单位` 可在 `us/mm` 两种读数间切换
 
 ### 5.6 缺陷记录与清理
+
 1. 点击 `开始记录`（未开始记录时不会写入历史）
 2. 触发后自动入表（带编号、深度、波幅）
 3. 右键表格可 `删除选中记录` 或 `清空历史记录`
 4. 也可用键盘 `Delete` 删除选中历史行（`实时` 行不可删）
 
 ### 5.7 校准流程
+
 1. 设置 -> `声速校准`：输入实测往返时间与已知厚度
 2. 设置 -> `零点校准`：输入实测时间与对应厚度
 3. 设置 -> `保存校准` 或 `加载校准`（JSON）
 
 ### 5.8 报告导出
+
 1. 先执行检测并记录缺陷
 2. 点击 `生成报告` 打开预览窗口
 3. 在预览窗口点击 `保存报告`
@@ -139,10 +165,12 @@ xelatex main.tex
 ## 6. 数据文件说明
 
 ### 6.1 波形数据导出
+
 - `JSON`：保存参数 + 完整数组（time/raw/envelope）
 - `CSV`：参数区 + 波形明细列
 
 ### 6.2 校准文件格式（JSON）
+
 - `soundVelocityMps`：声速
 - `probeDelayUs`：零点延迟
 - `savedAt`：保存时间
@@ -170,7 +198,3 @@ main.py                        # 应用入口
   - 是否处于 `冻结` 状态
   - 触发模式是否设置为 `闸门触发` 且当前未触发
   - 是否点击了 `开始检测`
-
-## 9. 作者与维护
-
-- 作者：HYR（请按软著/交付要求替换为真实姓名）

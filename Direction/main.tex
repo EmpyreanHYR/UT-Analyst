@@ -50,20 +50,11 @@
 
 \usepackage{alltt}
 %以下是关于字体、版面的设置
-% 允许斜体和粗体
-\usepackage[SlantFont,BoldFont]{xeCJK} 
-% 设置缺省中文字体为 宋体，请大家使用宋体来排版，不要修改字体
-\setCJKmainfont{SimSun} 
-% 设置等宽字体         
-\setCJKmonofont{SimSun}
-% 设置缺省英文字体          
-\setmainfont{Times New Roman}
-% 英文等宽字体      
-\setmonofont{Times New Roman}
-% 英文无衬线字体          
-\setsansfont{Times New Roman}         
+\usepackage[fontset=mac]{ctex}
 %版面尺寸设置
 \usepackage[a4paper,top=3.5cm,bottom=2.6cm,left=3cm,right=2.6cm]{geometry}
+% 解决 fancyhdr 的 headheight 警告
+\setlength{\headheight}{15pt}
 %中文缩进两个汉字位，请勿修改
 \setlength{\parindent}{2.4em}                                     
 %章节标题格式设置
@@ -131,8 +122,7 @@
 \newcommand{\liuhao}{\fontsize{7.5pt}{\baselineskip}\selectfont}   %六号
 \newcommand{\qihao}{\fontsize{5.5pt}{\baselineskip}\selectfont}    %七号
 
-\setCJKfamilyfont{hei}{SimHei}
-\newcommand{\hei}{\CJKfamily{hei}}
+\newcommand{\hei}{\heiti}
 
 
 \titleformat{\subsection}{\hei\sihao}{\thesubsection}{1em}{}
@@ -154,13 +144,16 @@
 \newcommand{\upcite}[1]{\textsuperscript{\textsuperscript{\cite{#1}}}}
 
 % 定义统一的作者和版本号
-\newcommand{\SoftwareName}{超声波智能辅助检测系统（Ultrasonic Intelligent Auxiliary Detection System）}
+\newcommand{\SoftwareName}{超声波智能辅助检测系统}
+
 \newcommand{\Version}{V1.0}
 
 % 定义纯作者列表（不含“作者：”，用换行分隔）
 % TODO: 替换为软著申请所需的真实作者姓名；如多作者请使用 \\ 换行分隔
 \newcommand{\PureAuthors}{%
-	HYR%
+	A\\
+	B\\
+	C
 }
 
 % 带前缀的完整作者显示（“作者：”不参与替换）
