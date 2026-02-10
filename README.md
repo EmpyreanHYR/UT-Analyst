@@ -52,13 +52,11 @@ python main.py
 
 本仓库已内置“软件使用说明书” LaTeX 模板，并已按本项目内容补齐正文，可用于软著材料编写与导出。
 
-- 入口文件：`copyright-of-computer-software_latex_template_V7.0/main.tex`
+- 入口文件：`main.tex`
 - 正文文件：
-
-  - `copyright-of-computer-software_latex_template_V7.0/texfile/1_introduction.tex`
-  - `copyright-of-computer-software_latex_template_V7.0/texfile/2_implosion.tex`
-  - `copyright-of-computer-software_latex_template_V7.0/texfile/3_summary.tex`
-- 截图占位：说明书中的截图位置已用 LaTeX 注释标出
+- - `1_introduction.tex`
+- - `2_implosion.tex`
+- - `3_summary.tex`
 
 ### 3.1 导出 PDF（本地需安装 XeLaTeX）
 
