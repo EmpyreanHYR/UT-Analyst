@@ -28,7 +28,8 @@ def main() -> int:
 
     signalModel = UltrasonicSignalModel()
     mainWindow = MainWindow()
-    MainController(model=signalModel, view=mainWindow)
+    # 关键：必须持有控制器引用，避免被垃圾回收后导致菜单/工具栏无响应。
+    mainWindow.mainController = MainController(model=signalModel, view=mainWindow)
 
     mainWindow.show()
     return application.exec_()
@@ -36,4 +37,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     sys.exit(main())
-

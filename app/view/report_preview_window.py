@@ -61,6 +61,9 @@ class ReportPreviewWindow(QDialog):
 
         self.reportBrowser = QTextBrowser(self)
         self.reportBrowser.setHtml(reportHtml)
+        self.reportBrowser.setStyleSheet(
+            "QTextBrowser { background-color: #ffffff; color: #1a1f24; border: 1px solid #c8d3df; border-radius: 6px; }"
+        )
         rootLayout.addWidget(self.reportBrowser, stretch=1)
 
         buttonLayout = QHBoxLayout()
@@ -94,4 +97,3 @@ class ReportPreviewWindow(QDialog):
             Qt.SmoothTransformation,
         )
         self.screenshotLabel.setPixmap(scaledPixmap)
-

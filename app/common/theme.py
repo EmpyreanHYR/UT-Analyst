@@ -20,7 +20,7 @@ def buildDarkIndustrialStyleSheet() -> str:
     QWidget {
         background-color: #0f141a;
         color: #d0d7de;
-        font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif;
+        font-family: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
         font-size: 13px;
     }
 
@@ -133,4 +133,3 @@ def buildDarkIndustrialStyleSheet() -> str:
         height: 4px;
     }
     """
-
