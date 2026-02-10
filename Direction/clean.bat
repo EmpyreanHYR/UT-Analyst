@@ -6,4 +6,5 @@ del  *.log  /s
 del  *.bak  /s
 del  document\*.bak  /s 
 del  texcode\*.bak  /s
-
+del  *.synctex.gz  /s
+echo Cleaned!
