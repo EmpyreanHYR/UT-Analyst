@@ -12,6 +12,7 @@ from PyQt5.QtGui import QIcon
 from PyQt5.QtWidgets import (
     QAbstractItemView,
     QAction,
+    QCheckBox,
     QComboBox,
     QDockWidget,
     QDoubleSpinBox,
@@ -51,12 +52,22 @@ class MainWindow(QMainWindow):
     stopRequested = pyqtSignal()
     singleShotRequested = pyqtSignal()
     resetRequested = pyqtSignal()
+    freezeToggled = pyqtSignal(bool)
+    peakHoldToggled = pyqtSignal(bool)
+    referenceCaptureRequested = pyqtSignal()
+    referenceClearRequested = pyqtSignal()
+    triggerModeChanged = pyqtSignal(str)
+    unitModeChanged = pyqtSignal(str)
     recordStartRequested = pyqtSignal()
     recordStopRequested = pyqtSignal()
     parametersApplied = pyqtSignal(dict)
     defectLogged = pyqtSignal(dict)
     defectRecordsDeleted = pyqtSignal(object)
     defectRecordsCleared = pyqtSignal()
+    velocityCalibrationRequested = pyqtSignal()
+    zeroCalibrationRequested = pyqtSignal()
+    saveCalibrationRequested = pyqtSignal()
+    loadCalibrationRequested = pyqtSignal()
 
     # 文件与报告相关信号（后续可扩展文件读写、报表导出）。
     openRequested = pyqtSignal()
@@ -84,6 +95,10 @@ class MainWindow(QMainWindow):
         self.gateTimeMaxUs = 100.0
         self.gateMinWidthUs = 0.04
         self.gridVisible = True
+        self.displayUnitMode = "us"
+        self.currentSoundVelocityMps = 5900.0
+        self.currentProbeDelayUs = 0.0
+        self.lastTimeAxisUs = np.array([], dtype=np.float32)
 
         # 状态栏临时消息恢复定时器。
         self.statusRestoreTimer = QTimer(self)
@@ -119,6 +134,13 @@ class MainWindow(QMainWindow):
         self.reportAction = QAction("生成报告", self)
         self.startScanAction = QAction("开始检测", self)
         self.stopScanAction = QAction("停止检测", self)
+        self.freezeAction = QAction("冻结波形", self)
+        self.freezeAction.setCheckable(True)
+        self.singleShotAction = QAction("单次采样", self)
+        self.captureReferenceAction = QAction("捕获参考波形", self)
+        self.clearReferenceAction = QAction("清除参考波形", self)
+        self.peakHoldAction = QAction("峰值保持", self)
+        self.peakHoldAction.setCheckable(True)
         self.startRecordAction = QAction("开始记录", self)
         self.stopRecordAction = QAction("停止记录", self)
         self.deleteRecordAction = QAction("删除选中记录", self)
@@ -132,6 +154,12 @@ class MainWindow(QMainWindow):
         self.fileMenu.addSeparator()
         self.fileMenu.addAction(self.startScanAction)
         self.fileMenu.addAction(self.stopScanAction)
+        self.fileMenu.addAction(self.freezeAction)
+        self.fileMenu.addAction(self.singleShotAction)
+        self.fileMenu.addSeparator()
+        self.fileMenu.addAction(self.captureReferenceAction)
+        self.fileMenu.addAction(self.clearReferenceAction)
+        self.fileMenu.addAction(self.peakHoldAction)
         self.fileMenu.addSeparator()
         self.fileMenu.addAction(self.startRecordAction)
         self.fileMenu.addAction(self.stopRecordAction)
@@ -143,8 +171,17 @@ class MainWindow(QMainWindow):
 
         self.applyParametersAction = QAction("应用当前参数", self)
         self.resetGateAction = QAction("闸门复位", self)
+        self.velocityCalibrationAction = QAction("声速校准", self)
+        self.zeroCalibrationAction = QAction("零点校准", self)
+        self.saveCalibrationAction = QAction("保存校准", self)
+        self.loadCalibrationAction = QAction("加载校准", self)
         self.settingsMenu.addAction(self.applyParametersAction)
         self.settingsMenu.addAction(self.resetGateAction)
+        self.settingsMenu.addSeparator()
+        self.settingsMenu.addAction(self.velocityCalibrationAction)
+        self.settingsMenu.addAction(self.zeroCalibrationAction)
+        self.settingsMenu.addAction(self.saveCalibrationAction)
+        self.settingsMenu.addAction(self.loadCalibrationAction)
 
         self.autoScaleAction = QAction("自动缩放波形", self)
         self.toggleGridAction = QAction("显示网格", self)
@@ -175,12 +212,17 @@ class MainWindow(QMainWindow):
         self.saveToolAction = QAction(self._standardIcon(QStyle.SP_DialogSaveButton), "保存", self)
         self.startDetectAction = QAction(self._standardIcon(QStyle.SP_MediaPlay), "开始检测", self)
         self.stopDetectAction = QAction(self._standardIcon(QStyle.SP_MediaStop), "停止检测", self)
+        self.freezeToolAction = QAction(self._standardIcon(QStyle.SP_MediaPause), "冻结", self)
+        self.freezeToolAction.setCheckable(True)
+        self.singleShotToolAction = QAction(self._standardIcon(QStyle.SP_MediaSkipForward), "单次", self)
         self.reportToolAction = QAction(self._standardIcon(QStyle.SP_FileDialogDetailedView), "生成报告", self)
 
         self.openToolAction.setStatusTip("打开检测数据文件")
         self.saveToolAction.setStatusTip("保存当前波形数据")
         self.startDetectAction.setStatusTip("开始实时检测")
         self.stopDetectAction.setStatusTip("停止实时检测")
+        self.freezeToolAction.setStatusTip("冻结/恢复波形刷新")
+        self.singleShotToolAction.setStatusTip("执行单次采样")
         self.reportToolAction.setStatusTip("生成检测报告")
 
         toolBar.addAction(self.openToolAction)
@@ -188,6 +230,8 @@ class MainWindow(QMainWindow):
         toolBar.addSeparator()
         toolBar.addAction(self.startDetectAction)
         toolBar.addAction(self.stopDetectAction)
+        toolBar.addAction(self.freezeToolAction)
+        toolBar.addAction(self.singleShotToolAction)
         toolBar.addSeparator()
         toolBar.addAction(self.reportToolAction)
 
@@ -231,6 +275,14 @@ class MainWindow(QMainWindow):
             pen=pg.mkPen(color="#ffd166", width=1.6),
             name="包络",
         )
+        self.referenceEnvelopeCurve = self.aScanPlot.plot(
+            pen=pg.mkPen(color="#c084fc", width=1.4, style=Qt.DashLine),
+            name="参考包络",
+        )
+        self.peakHoldCurve = self.aScanPlot.plot(
+            pen=pg.mkPen(color="#7ae582", width=1.2),
+            name="峰值保持",
+        )
 
         self.thresholdLine = pg.InfiniteLine(
             pos=0.80,
@@ -260,6 +312,38 @@ class MainWindow(QMainWindow):
         self.aScanPlot.addItem(self.gateStartLine)
         self.aScanPlot.addItem(self.gateEndLine)
         self.aScanPlot.addItem(self.peakMarker)
+
+        # 双游标：用于读数差值（时间差/深度差）。
+        self.cursorLineA = pg.InfiniteLine(
+            pos=5.0,
+            angle=90,
+            pen=pg.mkPen("#66b3ff", width=1.2),
+            movable=True,
+        )
+        self.cursorLineB = pg.InfiniteLine(
+            pos=12.0,
+            angle=90,
+            pen=pg.mkPen("#ffb86b", width=1.2),
+            movable=True,
+        )
+        self.aScanPlot.addItem(self.cursorLineA)
+        self.aScanPlot.addItem(self.cursorLineB)
+        self.cursorLabelA = pg.TextItem(
+            text="A",
+            color="#66b3ff",
+            anchor=(0.5, 1.0),
+            fill=pg.mkBrush(8, 12, 18, 170),
+            border=pg.mkPen("#66b3ff", width=0.8),
+        )
+        self.cursorLabelB = pg.TextItem(
+            text="B",
+            color="#ffb86b",
+            anchor=(0.5, 1.0),
+            fill=pg.mkBrush(18, 12, 8, 170),
+            border=pg.mkPen("#ffb86b", width=0.8),
+        )
+        self.aScanPlot.addItem(self.cursorLabelA)
+        self.aScanPlot.addItem(self.cursorLabelB)
 
         # 底部缺陷列表表格。
         self.defectTableWidget = QTableWidget(0, 3, self)
@@ -370,6 +454,45 @@ class MainWindow(QMainWindow):
         recordLayout.addWidget(self.stopRecordButton)
         dockLayout.addWidget(recordGroup)
 
+        # 采集控制：冻结、单次、触发模式、峰值保持、参考波形。
+        acquisitionGroup = QGroupBox("采集控制", dockContainer)
+        acquisitionLayout = QFormLayout(acquisitionGroup)
+        acquisitionLayout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        self.triggerModeComboBox = QComboBox(acquisitionGroup)
+        self.triggerModeComboBox.addItems(["自动", "闸门触发"])
+        self.unitModeComboBox = QComboBox(acquisitionGroup)
+        self.unitModeComboBox.addItems(["时间(us)", "深度(mm)"])
+
+        acquisitionButtonRow = QWidget(acquisitionGroup)
+        acquisitionButtonLayout = QHBoxLayout(acquisitionButtonRow)
+        acquisitionButtonLayout.setContentsMargins(0, 0, 0, 0)
+        acquisitionButtonLayout.setSpacing(6)
+        self.freezeButton = QPushButton("冻结", acquisitionButtonRow)
+        self.freezeButton.setCheckable(True)
+        self.singleShotButton = QPushButton("单次采样", acquisitionButtonRow)
+        acquisitionButtonLayout.addWidget(self.freezeButton)
+        acquisitionButtonLayout.addWidget(self.singleShotButton)
+
+        self.peakHoldCheckBox = QCheckBox("峰值保持", acquisitionGroup)
+
+        referenceButtonRow = QWidget(acquisitionGroup)
+        referenceButtonLayout = QHBoxLayout(referenceButtonRow)
+        referenceButtonLayout.setContentsMargins(0, 0, 0, 0)
+        referenceButtonLayout.setSpacing(6)
+        self.captureReferenceButton = QPushButton("捕获参考", referenceButtonRow)
+        self.clearReferenceButton = QPushButton("清除参考", referenceButtonRow)
+        referenceButtonLayout.addWidget(self.captureReferenceButton)
+        referenceButtonLayout.addWidget(self.clearReferenceButton)
+
+        acquisitionLayout.addRow("触发模式", self.triggerModeComboBox)
+        acquisitionLayout.addRow("显示单位", self.unitModeComboBox)
+        acquisitionLayout.addRow("采样操作", acquisitionButtonRow)
+        acquisitionLayout.addRow("", self.peakHoldCheckBox)
+        acquisitionLayout.addRow("参考波形", referenceButtonRow)
+
+        dockLayout.addWidget(acquisitionGroup)
+
         # 闸门设置：对齐主流工业 UT 界面，采用 Start / Width / Level 三参数。
         gatePanelGroup = QGroupBox("闸门设置 (Gate A)", dockContainer)
         gatePanelLayout = QFormLayout(gatePanelGroup)
@@ -396,6 +519,7 @@ class MainWindow(QMainWindow):
         gatePanelLayout.addRow("起点 Start", self.gateStartUsSpinBox)
         gatePanelLayout.addRow("宽度 Width", self.gateWidthUsSpinBox)
         gatePanelLayout.addRow("门限 Level", self.gateLevelSpinBox)
+        self._refreshGateSpinBoxSuffix()
 
         dockLayout.addWidget(gatePanelGroup)
 
@@ -417,6 +541,32 @@ class MainWindow(QMainWindow):
         dataPanelLayout.addRow("波高比例", self.peakPercentLabel)
 
         dockLayout.addWidget(dataPanelGroup)
+
+        # 游标读数面板：显示双游标时间差与深度差。
+        cursorPanelGroup = QGroupBox("游标读数", dockContainer)
+        cursorPanelLayout = QFormLayout(cursorPanelGroup)
+        cursorPanelLayout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+
+        self.cursorAValueLabel = QLabel("--")
+        self.cursorBValueLabel = QLabel("--")
+        self.cursorDeltaValueLabel = QLabel("--")
+        self.cursorDepthDeltaLabel = QLabel("--")
+
+        cursorPanelLayout.addRow("游标 A", self.cursorAValueLabel)
+        cursorPanelLayout.addRow("游标 B", self.cursorBValueLabel)
+        cursorPanelLayout.addRow("差值 Δ", self.cursorDeltaValueLabel)
+        cursorPanelLayout.addRow("深度差 Δd", self.cursorDepthDeltaLabel)
+        dockLayout.addWidget(cursorPanelGroup)
+
+        # 校准结果面板：显示当前声速与零点延迟。
+        calibrationPanelGroup = QGroupBox("校准参数", dockContainer)
+        calibrationPanelLayout = QFormLayout(calibrationPanelGroup)
+        calibrationPanelLayout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.calibratedVelocityLabel = QLabel("5900 m/s")
+        self.calibratedDelayLabel = QLabel("0.00 us")
+        calibrationPanelLayout.addRow("声速", self.calibratedVelocityLabel)
+        calibrationPanelLayout.addRow("零点延迟", self.calibratedDelayLabel)
+        dockLayout.addWidget(calibrationPanelGroup)
         dockLayout.addStretch(1)
 
         # 右侧面板使用滚动区域包装，窗口高度不足时自动显示垂直滚动条。
@@ -458,6 +608,11 @@ class MainWindow(QMainWindow):
         self.reportAction.triggered.connect(self.reportRequested.emit)
         self.startScanAction.triggered.connect(self.startRequested.emit)
         self.stopScanAction.triggered.connect(self.stopRequested.emit)
+        self.freezeAction.toggled.connect(self.freezeToggled.emit)
+        self.singleShotAction.triggered.connect(self.singleShotRequested.emit)
+        self.captureReferenceAction.triggered.connect(self.referenceCaptureRequested.emit)
+        self.clearReferenceAction.triggered.connect(self.referenceClearRequested.emit)
+        self.peakHoldAction.toggled.connect(self.peakHoldToggled.emit)
         self.startRecordAction.triggered.connect(self.recordStartRequested.emit)
         self.stopRecordAction.triggered.connect(self.recordStopRequested.emit)
         self.deleteRecordAction.triggered.connect(self.deleteSelectedDefectRows)
@@ -468,6 +623,8 @@ class MainWindow(QMainWindow):
         self.saveToolAction.triggered.connect(self.saveRequested.emit)
         self.startDetectAction.triggered.connect(self.startRequested.emit)
         self.stopDetectAction.triggered.connect(self.stopRequested.emit)
+        self.freezeToolAction.toggled.connect(self.freezeToggled.emit)
+        self.singleShotToolAction.triggered.connect(self.singleShotRequested.emit)
         self.reportToolAction.triggered.connect(self.reportRequested.emit)
 
         # 参数联动：滑动条与微调框双向同步。
@@ -479,11 +636,22 @@ class MainWindow(QMainWindow):
         self.applyParametersAction.triggered.connect(self._emitParameters)
         self.startRecordButton.clicked.connect(self.recordStartRequested.emit)
         self.stopRecordButton.clicked.connect(self.recordStopRequested.emit)
+        self.freezeButton.toggled.connect(self.freezeToggled.emit)
+        self.singleShotButton.clicked.connect(self.singleShotRequested.emit)
+        self.peakHoldCheckBox.toggled.connect(self.peakHoldToggled.emit)
+        self.captureReferenceButton.clicked.connect(self.referenceCaptureRequested.emit)
+        self.clearReferenceButton.clicked.connect(self.referenceClearRequested.emit)
+        self.triggerModeComboBox.currentTextChanged.connect(self.triggerModeChanged.emit)
+        self.unitModeComboBox.currentTextChanged.connect(self.unitModeChanged.emit)
 
         self.autoScaleAction.triggered.connect(self._autoScalePlot)
         self.toggleGridAction.toggled.connect(self._toggleGridVisibility)
         self.clearPeakAction.triggered.connect(self._clearPeakMarker)
         self.resetGateAction.triggered.connect(self._resetGateLinesToDefault)
+        self.velocityCalibrationAction.triggered.connect(self.velocityCalibrationRequested.emit)
+        self.zeroCalibrationAction.triggered.connect(self.zeroCalibrationRequested.emit)
+        self.saveCalibrationAction.triggered.connect(self.saveCalibrationRequested.emit)
+        self.loadCalibrationAction.triggered.connect(self.loadCalibrationRequested.emit)
         self.aboutAction.triggered.connect(self._showAboutDialog)
 
         self.aScanPlot.customContextMenuRequested.connect(self._showPlotContextMenu)
@@ -496,6 +664,8 @@ class MainWindow(QMainWindow):
         self.gateStartUsSpinBox.valueChanged.connect(self._syncGateLinesFromInputs)
         self.gateWidthUsSpinBox.valueChanged.connect(self._syncGateLinesFromInputs)
         self.gateLevelSpinBox.valueChanged.connect(self._syncGateLinesFromInputs)
+        self.cursorLineA.sigPositionChanged.connect(self._updateCursorReadout)
+        self.cursorLineB.sigPositionChanged.connect(self._updateCursorReadout)
 
     def _syncGainFromSlider(self, sliderValue: int) -> None:
         """滑动条变化时同步更新增益输入框。"""
@@ -517,6 +687,38 @@ class MainWindow(QMainWindow):
         isCustomMode = currentIndex == 2
         self.customVelocitySpinBox.setVisible(isCustomMode)
 
+    def _toDepthMm(self, timeUs: float) -> float:
+        """将传播时间(us)转换为等效深度(mm)。"""
+        effectiveTimeUs = max(timeUs - self.currentProbeDelayUs, 0.0)
+        depthMeter = (effectiveTimeUs * 1e-6 * self.currentSoundVelocityMps) / 2.0
+        return depthMeter * 1000.0
+
+    def _toTimeUs(self, depthMm: float) -> float:
+        """将等效深度(mm)转换为传播时间(us)。"""
+        depthMeter = max(depthMm, 0.0) / 1000.0
+        return self.currentProbeDelayUs + (2.0 * depthMeter / max(self.currentSoundVelocityMps, 1.0)) * 1e6
+
+    def _unitToDisplay(self, timeUs: float) -> float:
+        """按当前单位模式转换显示值。"""
+        if self.displayUnitMode == "mm":
+            return self._toDepthMm(timeUs)
+        return timeUs
+
+    def _displayToUnitUs(self, displayValue: float) -> float:
+        """将当前单位显示值转换为时间(us)。"""
+        if self.displayUnitMode == "mm":
+            return self._toTimeUs(displayValue)
+        return displayValue
+
+    def _refreshGateSpinBoxSuffix(self) -> None:
+        """根据单位模式刷新闸门输入框后缀。"""
+        if self.displayUnitMode == "mm":
+            self.gateStartUsSpinBox.setSuffix(" mm")
+            self.gateWidthUsSpinBox.setSuffix(" mm")
+        else:
+            self.gateStartUsSpinBox.setSuffix(" us")
+            self.gateWidthUsSpinBox.setSuffix(" us")
+
     def _syncGateInputsFromLines(self) -> None:
         """闸门线拖拽后，回填 Start/Width/Level 输入框。"""
         if self.gateUiSyncLocked:
@@ -528,11 +730,16 @@ class MainWindow(QMainWindow):
             widthUs = max(endUs - startUs, self.gateMinWidthUs)
             level = float(self.thresholdLine.value())
 
-            self.gateStartUsSpinBox.setValue(startUs)
-            self.gateWidthUsSpinBox.setValue(widthUs)
+            startDisplay = self._unitToDisplay(startUs)
+            endDisplay = self._unitToDisplay(endUs)
+            widthDisplay = max(endDisplay - startDisplay, 0.001)
+
+            self.gateStartUsSpinBox.setValue(startDisplay)
+            self.gateWidthUsSpinBox.setValue(widthDisplay)
             self.gateLevelSpinBox.setValue(level)
         finally:
             self.gateUiSyncLocked = False
+        self._updateCursorReadout()
 
     def _syncGateLinesFromInputs(self) -> None:
         """Start/Width/Level 输入变化后，同步更新闸门线。"""
@@ -541,8 +748,16 @@ class MainWindow(QMainWindow):
 
         self.gateUiSyncLocked = True
         try:
-            startUs = float(self.gateStartUsSpinBox.value())
-            widthUs = max(float(self.gateWidthUsSpinBox.value()), self.gateMinWidthUs)
+            startDisplay = float(self.gateStartUsSpinBox.value())
+            widthDisplay = max(float(self.gateWidthUsSpinBox.value()), 0.001)
+            endDisplay = startDisplay + widthDisplay
+
+            startUs = self._displayToUnitUs(startDisplay)
+            endUs = self._displayToUnitUs(endDisplay)
+            if endUs < startUs:
+                startUs, endUs = endUs, startUs
+
+            widthUs = max(endUs - startUs, self.gateMinWidthUs)
             endUs = startUs + widthUs
             level = float(self.gateLevelSpinBox.value())
 
@@ -612,9 +827,101 @@ class MainWindow(QMainWindow):
                 self.velocityComboBox.setCurrentIndex(2)
                 self.customVelocitySpinBox.setValue(velocity)
 
+        probeDelayUs = float(parameters.get("probeDelayUs", self.currentProbeDelayUs))
+        self.setCalibrationState(
+            soundVelocityMps=float(parameters.get("soundVelocityMps", self.currentSoundVelocityMps)),
+            probeDelayUs=probeDelayUs,
+        )
+
     def setAcquisitionIntervalMs(self, intervalMs: int) -> None:
         """同步显示控制器的采样刷新间隔。"""
         self.refreshIntervalMsSpinBox.setValue(float(intervalMs))
+
+    def setFreezeState(self, isFrozen: bool) -> None:
+        """同步冻结按钮与动作状态。"""
+        self.freezeAction.blockSignals(True)
+        self.freezeToolAction.blockSignals(True)
+        self.freezeButton.blockSignals(True)
+        self.freezeAction.setChecked(isFrozen)
+        self.freezeToolAction.setChecked(isFrozen)
+        self.freezeButton.setChecked(isFrozen)
+        self.freezeAction.blockSignals(False)
+        self.freezeToolAction.blockSignals(False)
+        self.freezeButton.blockSignals(False)
+
+    def setPeakHoldState(self, isEnabled: bool) -> None:
+        """同步峰值保持按钮状态。"""
+        self.peakHoldAction.blockSignals(True)
+        self.peakHoldCheckBox.blockSignals(True)
+        self.peakHoldAction.setChecked(isEnabled)
+        self.peakHoldCheckBox.setChecked(isEnabled)
+        self.peakHoldAction.blockSignals(False)
+        self.peakHoldCheckBox.blockSignals(False)
+
+    def setTriggerMode(self, triggerMode: str) -> None:
+        """同步触发模式下拉框。"""
+        textValue = "闸门触发" if triggerMode.lower().startswith("gate") else "自动"
+        self.triggerModeComboBox.blockSignals(True)
+        self.triggerModeComboBox.setCurrentText(textValue)
+        self.triggerModeComboBox.blockSignals(False)
+
+    def setDisplayUnitMode(self, unitMode: str) -> None:
+        """设置显示单位模式（us/mm）。"""
+        normalizedMode = "mm" if unitMode.lower().startswith("mm") else "us"
+        if self.displayUnitMode == normalizedMode:
+            return
+        self.displayUnitMode = normalizedMode
+
+        self.unitModeComboBox.blockSignals(True)
+        self.unitModeComboBox.setCurrentText("深度(mm)" if normalizedMode == "mm" else "时间(us)")
+        self.unitModeComboBox.blockSignals(False)
+        self.aScanPlot.setLabel("bottom", "时间(us) / 等效深度(mm)")
+        self._refreshGateSpinBoxSuffix()
+        if self.lastTimeAxisUs.size > 1:
+            self.prepareGateForTimeAxis(self.lastTimeAxisUs)
+        self._syncGateInputsFromLines()
+
+    def setCalibrationState(self, soundVelocityMps: float, probeDelayUs: float) -> None:
+        """同步校准参数显示。"""
+        self.currentSoundVelocityMps = float(soundVelocityMps)
+        self.currentProbeDelayUs = float(probeDelayUs)
+        self.calibratedVelocityLabel.setText(f"{self.currentSoundVelocityMps:.1f} m/s")
+        self.calibratedDelayLabel.setText(f"{self.currentProbeDelayUs:.2f} us")
+        self._syncGateInputsFromLines()
+
+    def _updateCursorReadout(self) -> None:
+        """刷新双游标读数（时间/深度差）。"""
+        cursorAUs = float(self.cursorLineA.value())
+        cursorBUs = float(self.cursorLineB.value())
+        deltaUs = abs(cursorBUs - cursorAUs)
+        deltaDepthMm = abs(self._toDepthMm(cursorBUs) - self._toDepthMm(cursorAUs))
+
+        if self.displayUnitMode == "mm":
+            cursorADisplay = self._toDepthMm(cursorAUs)
+            cursorBDisplay = self._toDepthMm(cursorBUs)
+            deltaDisplay = abs(cursorBDisplay - cursorADisplay)
+            self.cursorAValueLabel.setText(f"{cursorADisplay:.2f} mm")
+            self.cursorBValueLabel.setText(f"{cursorBDisplay:.2f} mm")
+            self.cursorDeltaValueLabel.setText(f"{deltaDisplay:.2f} mm")
+        else:
+            self.cursorAValueLabel.setText(f"{cursorAUs:.2f} us")
+            self.cursorBValueLabel.setText(f"{cursorBUs:.2f} us")
+            self.cursorDeltaValueLabel.setText(f"{deltaUs:.2f} us")
+
+        self.cursorDepthDeltaLabel.setText(f"{deltaDepthMm:.2f} mm")
+
+        viewRange = self.aScanPlot.getPlotItem().viewRange()
+        yMin, yMax = viewRange[1]
+        ySpan = max(yMax - yMin, 1e-6)
+        yLabel = yMax - ySpan * 0.02
+        self.cursorLabelA.setPos(cursorAUs, yLabel)
+        self.cursorLabelB.setPos(cursorBUs, yLabel)
+        if self.displayUnitMode == "mm":
+            self.cursorLabelA.setText(f"A {self._toDepthMm(cursorAUs):.2f}mm", color="#66b3ff")
+            self.cursorLabelB.setText(f"B {self._toDepthMm(cursorBUs):.2f}mm", color="#ffb86b")
+        else:
+            self.cursorLabelA.setText(f"A {cursorAUs:.2f}us", color="#66b3ff")
+            self.cursorLabelB.setText(f"B {cursorBUs:.2f}us", color="#ffb86b")
 
     def updateAScanPlot(
         self,
@@ -626,12 +933,24 @@ class MainWindow(QMainWindow):
         peakTimeUs: float,
         peakAmplitude: float,
         defectDetected: bool,
+        referenceEnvelope: Optional[np.ndarray] = None,
+        peakHoldEnvelope: Optional[np.ndarray] = None,
     ) -> None:
         """刷新 A-Scan 绘图数据。"""
         self.prepareGateForTimeAxis(timeAxisUs)
+        self.lastTimeAxisUs = np.asarray(timeAxisUs, dtype=np.float32)
 
         self.rawSignalCurve.setData(timeAxisUs, rawSignal)
         self.envelopeCurve.setData(timeAxisUs, envelopeSignal)
+        if referenceEnvelope is not None and referenceEnvelope.size == timeAxisUs.size:
+            self.referenceEnvelopeCurve.setData(timeAxisUs, referenceEnvelope)
+        else:
+            self.referenceEnvelopeCurve.setData([], [])
+        if peakHoldEnvelope is not None and peakHoldEnvelope.size == timeAxisUs.size:
+            self.peakHoldCurve.setData(timeAxisUs, peakHoldEnvelope)
+        else:
+            self.peakHoldCurve.setData([], [])
+
         self.thresholdLine.setValue(thresholdLevel)
         self.gateStartLine.setValue(gateRangeUs[0])
         self.gateEndLine.setValue(gateRangeUs[1])
@@ -646,6 +965,9 @@ class MainWindow(QMainWindow):
             xMaxUs = float(timeAxisUs[-1])
             self.aScanPlot.setXRange(xMinUs, xMaxUs, padding=0.01)
             self.aScanPlot.setYRange(-0.2, 1.3, padding=0.02)
+            self.cursorLineA.setBounds((xMinUs, xMaxUs))
+            self.cursorLineB.setBounds((xMinUs, xMaxUs))
+            self._updateCursorReadout()
 
     def getGateConfig(self) -> tuple[float, float, float, float]:
         """
@@ -680,8 +1002,12 @@ class MainWindow(QMainWindow):
         # 更新数值输入范围。
         self.gateUiSyncLocked = True
         try:
-            self.gateStartUsSpinBox.setRange(xMinUs, xMaxUs - self.gateMinWidthUs)
-            self.gateWidthUsSpinBox.setRange(self.gateMinWidthUs, xSpanUs)
+            startMin = self._unitToDisplay(xMinUs)
+            startMax = self._unitToDisplay(xMaxUs - self.gateMinWidthUs)
+            widthMin = max(self._unitToDisplay(xMinUs + self.gateMinWidthUs) - self._unitToDisplay(xMinUs), 0.001)
+            widthMax = max(self._unitToDisplay(xMaxUs) - self._unitToDisplay(xMinUs), widthMin)
+            self.gateStartUsSpinBox.setRange(min(startMin, startMax), max(startMin, startMax))
+            self.gateWidthUsSpinBox.setRange(min(widthMin, widthMax), max(widthMin, widthMax))
         finally:
             self.gateUiSyncLocked = False
 
@@ -689,6 +1015,8 @@ class MainWindow(QMainWindow):
         self.gateStartLine.setBounds((xMinUs, xMaxUs))
         self.gateEndLine.setBounds((xMinUs, xMaxUs))
         self.thresholdLine.setBounds((-0.20, 1.50))
+        self.cursorLineA.setBounds((xMinUs, xMaxUs))
+        self.cursorLineB.setBounds((xMinUs, xMaxUs))
 
         if not self.gateLinesInitialized:
             defaultStartUs = xMinUs + xSpanUs * 0.25
@@ -716,6 +1044,10 @@ class MainWindow(QMainWindow):
             self.gateStartLine.setValue(startUs)
             self.gateEndLine.setValue(endUs)
             self.thresholdLine.setValue(level)
+            cursorAUs = float(np.clip(self.cursorLineA.value(), xMinUs, xMaxUs))
+            cursorBUs = float(np.clip(self.cursorLineB.value(), xMinUs, xMaxUs))
+            self.cursorLineA.setValue(cursorAUs)
+            self.cursorLineB.setValue(cursorBUs)
         finally:
             self.gateUiSyncLocked = False
 

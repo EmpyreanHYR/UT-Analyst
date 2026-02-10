@@ -12,7 +12,7 @@ from typing import Any
 import numpy as np
 from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QObject, QTimer
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import QFileDialog
+from PyQt5.QtWidgets import QFileDialog, QInputDialog
 
 from app.model.ultrasonic_model import UltrasonicSignalModel
 from app.view.main_window import MainWindow
@@ -46,6 +46,12 @@ class MainController(QObject):
         self.highAmplitudeScreenHeight = 1.00
         self.lastOverRangeState = False
         self.recordingEnabled = False
+        self.freezeEnabled = False
+        self.peakHoldEnabled = False
+        self.triggerMode = "auto"
+        self.referenceEnvelope: np.ndarray | None = None
+        self.referenceTimeAxisUs: np.ndarray | None = None
+        self.peakHoldEnvelope: np.ndarray | None = None
 
         # 缓存最近一帧数据与定量结果，供导出与报告模块使用。
         self.lastFrameData: dict[str, Any] | None = None
@@ -73,12 +79,22 @@ class MainController(QObject):
         self.view.stopRequested.connect(self.stopAcquisition)
         self.view.singleShotRequested.connect(self.singleShotAcquisition)
         self.view.resetRequested.connect(self.resetSystem)
+        self.view.freezeToggled.connect(self.setFreezeEnabled)
+        self.view.peakHoldToggled.connect(self.setPeakHoldEnabled)
+        self.view.referenceCaptureRequested.connect(self.captureReferenceTrace)
+        self.view.referenceClearRequested.connect(self.clearReferenceTrace)
+        self.view.triggerModeChanged.connect(self.setTriggerMode)
+        self.view.unitModeChanged.connect(self.setDisplayUnitMode)
         self.view.recordStartRequested.connect(self.startRecording)
         self.view.recordStopRequested.connect(self.stopRecording)
         self.view.parametersApplied.connect(self.applyParameters)
         self.view.defectLogged.connect(self._onDefectLogged)
         self.view.defectRecordsDeleted.connect(self._onDefectRecordsDeleted)
         self.view.defectRecordsCleared.connect(self._onDefectRecordsCleared)
+        self.view.velocityCalibrationRequested.connect(self.calibrateVelocity)
+        self.view.zeroCalibrationRequested.connect(self.calibrateProbeDelay)
+        self.view.saveCalibrationRequested.connect(self.saveCalibrationFile)
+        self.view.loadCalibrationRequested.connect(self.loadCalibrationFile)
 
         # 功能列表 5：保存数据与报告生成。
         self.view.openRequested.connect(self.openDataFile)
@@ -91,6 +107,14 @@ class MainController(QObject):
         """初始化界面显示并执行首次采样。"""
         self.view.loadParameters(self.model.getParameters())
         self.view.setAcquisitionIntervalMs(self.acquisitionTimer.interval())
+        self.view.setFreezeState(False)
+        self.view.setPeakHoldState(False)
+        self.view.setTriggerMode(self.triggerMode)
+        self.view.setDisplayUnitMode("us")
+        self.view.setCalibrationState(
+            soundVelocityMps=self.model.parameters["soundVelocityMps"],
+            probeDelayUs=self.model.parameters.get("probeDelayUs", 0.0),
+        )
         self.view.setRecordingState(False)
         self.view.showStatusMessage("参数初始化完成。")
         self._refreshFrame()
@@ -100,6 +124,8 @@ class MainController(QObject):
         if self.acquisitionTimer.isActive():
             self.view.showStatusMessage("采集已在运行。")
             return
+        if self.freezeEnabled:
+            self.setFreezeEnabled(False)
         self.acquisitionTimer.start()
         self.view.showStatusMessage("实时采集已启动。")
 
@@ -116,7 +142,11 @@ class MainController(QObject):
 
     def singleShotAcquisition(self) -> None:
         """执行一次单帧采样。"""
+        previousFreezeState = self.freezeEnabled
+        if self.freezeEnabled:
+            self.freezeEnabled = False
         self._refreshFrame()
+        self.freezeEnabled = previousFreezeState
         self.view.showStatusMessage("单次采样完成。")
 
     def resetSystem(self) -> None:
@@ -124,12 +154,72 @@ class MainController(QObject):
         self.stopAcquisition()
         self.stopRecording(showMessage=False)
         self.model.resetHistory()
+        self.freezeEnabled = False
+        self.peakHoldEnabled = False
+        self.referenceEnvelope = None
+        self.referenceTimeAxisUs = None
+        self.peakHoldEnvelope = None
+        self.view.setFreezeState(False)
+        self.view.setPeakHoldState(False)
         self.view.clearDefectHistory()
         self.loggedDefectSnapshots.clear()
         self.lastDefectState = False
         self.lastOverRangeState = False
         self._refreshFrame()
         self.view.showStatusMessage("系统已重置。")
+
+    def setFreezeEnabled(self, isEnabled: bool) -> None:
+        """设置波形冻结状态。"""
+        self.freezeEnabled = bool(isEnabled)
+        self.view.setFreezeState(self.freezeEnabled)
+        if self.freezeEnabled:
+            self.view.showStatusMessage("波形已冻结。", 1400)
+        else:
+            self.view.showStatusMessage("波形刷新已恢复。", 1400)
+            self._refreshFrame()
+
+    def setPeakHoldEnabled(self, isEnabled: bool) -> None:
+        """设置峰值保持状态。"""
+        self.peakHoldEnabled = bool(isEnabled)
+        self.view.setPeakHoldState(self.peakHoldEnabled)
+        if not self.peakHoldEnabled:
+            self.peakHoldEnvelope = None
+            self.view.showStatusMessage("峰值保持已关闭。", 1400)
+            self._refreshFrame()
+        else:
+            self.view.showStatusMessage("峰值保持已开启。", 1400)
+
+    def captureReferenceTrace(self) -> None:
+        """捕获当前包络为参考波形。"""
+        if not self._ensureLatestFrameAvailable():
+            self.view.showStatusMessage("当前无可用波形，无法捕获参考。", isWarning=True)
+            return
+        assert self.lastFrameData is not None
+        self.referenceEnvelope = self.lastFrameData["envelopeSignal"].copy()
+        self.referenceTimeAxisUs = self.lastFrameData["timeAxisUs"].copy()
+        self.view.showStatusMessage("参考波形已捕获。", 1500)
+        self._refreshFrame()
+
+    def clearReferenceTrace(self) -> None:
+        """清除参考波形。"""
+        self.referenceEnvelope = None
+        self.referenceTimeAxisUs = None
+        self.view.showStatusMessage("参考波形已清除。", 1300)
+        self._refreshFrame()
+
+    def setTriggerMode(self, triggerModeText: str) -> None:
+        """设置触发模式（自动/闸门触发）。"""
+        normalizedMode = "gate" if "闸门" in triggerModeText.lower() or "gate" in triggerModeText.lower() else "auto"
+        self.triggerMode = normalizedMode
+        self.view.setTriggerMode(self.triggerMode)
+        modeText = "闸门触发" if self.triggerMode == "gate" else "自动"
+        self.view.showStatusMessage(f"触发模式：{modeText}", 1500)
+
+    def setDisplayUnitMode(self, unitText: str) -> None:
+        """设置界面显示单位。"""
+        normalizedMode = "mm" if "mm" in unitText.lower() else "us"
+        self.view.setDisplayUnitMode(normalizedMode)
+        self.view.showStatusMessage(f"显示单位切换为：{normalizedMode}", 1300)
 
     def startRecording(self) -> None:
         """开启缺陷记录（仅对历史表格写入生效）。"""
@@ -165,6 +255,10 @@ class MainController(QObject):
         self.model.updateParameters(parametersToApply)
         self.view.loadParameters(self.model.getParameters())
         self.view.setAcquisitionIntervalMs(refreshIntervalMs)
+        self.view.setCalibrationState(
+            soundVelocityMps=self.model.parameters["soundVelocityMps"],
+            probeDelayUs=self.model.parameters.get("probeDelayUs", 0.0),
+        )
         self._refreshFrame()
         self.view.showStatusMessage(f"参数更新成功（刷新间隔 {refreshIntervalMs} ms）。")
 
@@ -209,6 +303,142 @@ class MainController(QObject):
     def _onDefectRecordsCleared(self) -> None:
         """同步清空全部缺陷截图记录。"""
         self.loggedDefectSnapshots.clear()
+
+    def calibrateVelocity(self) -> None:
+        """根据已知厚度与实测传播时间校准声速。"""
+        measuredTimeUs, isTimeConfirmed = QInputDialog.getDouble(
+            self.view,
+            "声速校准",
+            "请输入实测往返时间(us):",
+            20.0,
+            0.01,
+            999999.0,
+            3,
+        )
+        if not isTimeConfirmed:
+            return
+
+        knownThicknessMm, isThicknessConfirmed = QInputDialog.getDouble(
+            self.view,
+            "声速校准",
+            "请输入已知厚度(mm):",
+            20.0,
+            0.01,
+            999999.0,
+            3,
+        )
+        if not isThicknessConfirmed:
+            return
+
+        correctedTimeUs = max(float(measuredTimeUs) - self.model.parameters.get("probeDelayUs", 0.0), 0.01)
+        calibratedVelocityMps = (2.0 * (float(knownThicknessMm) / 1000.0)) / (correctedTimeUs * 1e-6)
+        self.model.updateParameters({"soundVelocityMps": calibratedVelocityMps})
+        self.view.loadParameters(self.model.getParameters())
+        self.view.setCalibrationState(
+            soundVelocityMps=self.model.parameters["soundVelocityMps"],
+            probeDelayUs=self.model.parameters.get("probeDelayUs", 0.0),
+        )
+        self._refreshFrame()
+        self.view.showStatusMessage(f"声速校准完成：{self.model.parameters['soundVelocityMps']:.1f} m/s", 2200)
+
+    def calibrateProbeDelay(self) -> None:
+        """根据已知厚度与实测时间校准零点延迟。"""
+        measuredTimeUs, isTimeConfirmed = QInputDialog.getDouble(
+            self.view,
+            "零点校准",
+            "请输入实测往返时间(us):",
+            20.0,
+            0.01,
+            999999.0,
+            3,
+        )
+        if not isTimeConfirmed:
+            return
+
+        knownThicknessMm, isThicknessConfirmed = QInputDialog.getDouble(
+            self.view,
+            "零点校准",
+            "请输入对应已知厚度(mm):",
+            20.0,
+            0.01,
+            999999.0,
+            3,
+        )
+        if not isThicknessConfirmed:
+            return
+
+        expectedTimeUs = (
+            (2.0 * (float(knownThicknessMm) / 1000.0) / max(self.model.parameters["soundVelocityMps"], 1.0)) * 1e6
+        )
+        calibratedDelayUs = float(measuredTimeUs) - expectedTimeUs
+        self.model.updateParameters({"probeDelayUs": calibratedDelayUs})
+        self.view.loadParameters(self.model.getParameters())
+        self.view.setCalibrationState(
+            soundVelocityMps=self.model.parameters["soundVelocityMps"],
+            probeDelayUs=self.model.parameters.get("probeDelayUs", 0.0),
+        )
+        self._refreshFrame()
+        self.view.showStatusMessage(f"零点校准完成：{self.model.parameters.get('probeDelayUs', 0.0):.2f} us", 2200)
+
+    def saveCalibrationFile(self) -> None:
+        """保存校准参数到 JSON 文件。"""
+        defaultName = f"calibration_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        filePath, _ = QFileDialog.getSaveFileName(
+            self.view,
+            "保存校准参数",
+            defaultName,
+            "JSON 文件 (*.json)",
+        )
+        if not filePath:
+            return
+
+        outputPath = Path(filePath)
+        if outputPath.suffix.lower() != ".json":
+            outputPath = outputPath.with_suffix(".json")
+
+        try:
+            calibrationPayload = {
+                "savedAt": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                "soundVelocityMps": self.model.parameters["soundVelocityMps"],
+                "probeDelayUs": self.model.parameters.get("probeDelayUs", 0.0),
+            }
+            outputPath.write_text(json.dumps(calibrationPayload, ensure_ascii=False, indent=2), encoding="utf-8")
+            self.view.showStatusMessage(f"校准参数已保存：{outputPath.name}", 1800)
+        except Exception as error:  # pragma: no cover - GUI 场景下保底异常提示
+            self.view.showStatusMessage(f"保存校准失败：{error}", durationMs=2600, isWarning=True)
+
+    def loadCalibrationFile(self) -> None:
+        """从 JSON 文件加载校准参数。"""
+        filePath, _ = QFileDialog.getOpenFileName(
+            self.view,
+            "加载校准参数",
+            "",
+            "JSON 文件 (*.json)",
+        )
+        if not filePath:
+            return
+
+        try:
+            calibrationContent = json.loads(Path(filePath).read_text(encoding="utf-8"))
+            self.model.updateParameters(
+                {
+                    "soundVelocityMps": float(
+                        calibrationContent.get("soundVelocityMps", self.model.parameters["soundVelocityMps"])
+                    ),
+                    "probeDelayUs": float(
+                        calibrationContent.get("probeDelayUs", self.model.parameters.get("probeDelayUs", 0.0))
+                    ),
+                }
+            )
+            self.view.loadParameters(self.model.getParameters())
+            self.view.setCalibrationState(
+                soundVelocityMps=self.model.parameters["soundVelocityMps"],
+                probeDelayUs=self.model.parameters.get("probeDelayUs", 0.0),
+            )
+            self._refreshFrame()
+            self.view.showStatusMessage(f"校准参数已加载：{Path(filePath).name}", 1800)
+        except Exception as error:  # pragma: no cover - GUI 场景下保底异常提示
+            self.view.showStatusMessage(f"加载校准失败：{error}", durationMs=2600, isWarning=True)
 
     def openDataFile(self) -> None:
         """打开历史文件（当前版本仅提供文件选择与提示）。"""
@@ -356,21 +586,52 @@ class MainController(QObject):
         3. 使用 Gate Level 作为触发阈值；
         4. 将结果更新到 View，并在超阈时红点标记。
         """
-        frameData = self.model.generateFrame()
-        self.lastFrameData = frameData
-        self.view.prepareGateForTimeAxis(frameData["timeAxisUs"])
+        if self.freezeEnabled and self.lastFrameData is not None:
+            self._renderCurrentFrame(self.lastFrameData)
+            return
 
+        frameData = self.model.generateFrame()
+        self.view.prepareGateForTimeAxis(frameData["timeAxisUs"])
         gatePeakResult = self._captureGatePeak(
             timeAxisUs=frameData["timeAxisUs"],
             amplitudeArray=frameData["envelopeSignal"],
         )
-        gateXMinUs, gateXMaxUs, _, _ = self.view.getGateConfig()
-        gateThresholdAmplitude = gatePeakResult["thresholdAmplitude"]
-        peakTimeUs = gatePeakResult["peakTimeUs"]
-        peakAmplitude = gatePeakResult["peakAmplitude"]
-        gateTriggered = gatePeakResult["triggered"]
+        gateTriggered = bool(gatePeakResult["triggered"])
 
-        # 功能列表 4：定量计算。
+        # 触发模式：仅在闸门触发后更新显示，模拟硬件触发行为。
+        if self.triggerMode == "gate" and (not gateTriggered) and self.lastFrameData is not None:
+            self._renderCurrentFrame(self.lastFrameData)
+            return
+
+        self.lastFrameData = frameData
+        self._renderCurrentFrame(frameData, gatePeakResult=gatePeakResult)
+
+    def _renderCurrentFrame(
+        self,
+        frameData: dict[str, Any],
+        gatePeakResult: dict[str, float | bool | None] | None = None,
+    ) -> None:
+        """将当前帧数据渲染到界面并更新定量信息。"""
+        if gatePeakResult is None:
+            gatePeakResult = self._captureGatePeak(
+                timeAxisUs=frameData["timeAxisUs"],
+                amplitudeArray=frameData["envelopeSignal"],
+            )
+
+        gateXMinUs, gateXMaxUs, _, _ = self.view.getGateConfig()
+        gateThresholdAmplitude = float(gatePeakResult["thresholdAmplitude"])
+        peakTimeUs = gatePeakResult["peakTimeUs"]
+        peakAmplitude = float(gatePeakResult["peakAmplitude"])
+        gateTriggered = bool(gatePeakResult["triggered"])
+
+        if self.peakHoldEnabled:
+            if self.peakHoldEnvelope is None or self.peakHoldEnvelope.size != frameData["envelopeSignal"].size:
+                self.peakHoldEnvelope = frameData["envelopeSignal"].copy()
+            else:
+                self.peakHoldEnvelope = np.maximum(self.peakHoldEnvelope, frameData["envelopeSignal"])
+        else:
+            self.peakHoldEnvelope = None
+
         peakPercent = peakAmplitude * 100.0
         depthMm = self._timeUsToDepthMm(peakTimeUs) if peakTimeUs is not None else None
         horizontalDistanceMm = depthMm * self.kFactor if depthMm is not None else None
@@ -385,15 +646,25 @@ class MainController(QObject):
             "peakAmplitude": peakAmplitude,
         }
 
+        referenceEnvelope = None
+        if (
+            self.referenceEnvelope is not None
+            and self.referenceTimeAxisUs is not None
+            and self.referenceTimeAxisUs.size == frameData["timeAxisUs"].size
+        ):
+            referenceEnvelope = self.referenceEnvelope
+
         self.view.updateAScanPlot(
             timeAxisUs=frameData["timeAxisUs"],
             rawSignal=frameData["rawSignal"],
             envelopeSignal=frameData["envelopeSignal"],
             thresholdLevel=gateThresholdAmplitude,
             gateRangeUs=(gateXMinUs, gateXMaxUs),
-            peakTimeUs=0.0 if peakTimeUs is None else peakTimeUs,
+            peakTimeUs=0.0 if peakTimeUs is None else float(peakTimeUs),
             peakAmplitude=peakAmplitude,
             defectDetected=gateTriggered,
+            referenceEnvelope=referenceEnvelope,
+            peakHoldEnvelope=self.peakHoldEnvelope,
         )
         self.view.updateBScanImage(frameData["bScanMatrix"])
         self.view.updateQuantitativePanel(
@@ -415,7 +686,6 @@ class MainController(QObject):
             allowLogging=self.recordingEnabled,
         )
 
-        # 仅在“正常 -> 告警”跃迁时提示，避免每帧重复弹状态。
         if gateTriggered and not self.lastDefectState:
             self.view.showStatusMessage(
                 f"闸门捕捉到超阈值波峰：{peakAmplitude:.3f}",
@@ -423,7 +693,6 @@ class MainController(QObject):
             )
         self.lastDefectState = gateTriggered
 
-        # 自动报警：波峰超过 100% 屏高时，状态栏红色警告提示。
         overRange = peakAmplitude > self.highAmplitudeScreenHeight
         if overRange and not self.lastOverRangeState:
             self.view.showStatusMessage(
@@ -652,7 +921,9 @@ class MainController(QObject):
     def _timeUsToDepthMm(self, timeUs: float) -> float:
         """将传播时间（us）换算为声程深度（mm）。"""
         soundVelocityMps = self.model.parameters["soundVelocityMps"]
-        timeSec = timeUs * 1e-6
+        probeDelayUs = self.model.parameters.get("probeDelayUs", 0.0)
+        effectiveTimeUs = max(timeUs - probeDelayUs, 0.0)
+        timeSec = effectiveTimeUs * 1e-6
         depthMeter = (timeSec * soundVelocityMps) / 2.0
         return depthMeter * 1000.0
 

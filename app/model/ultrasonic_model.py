@@ -34,6 +34,7 @@ class UltrasonicSignalModel:
             "thresholdLevel": 0.55,  # 缺陷阈值（包络幅值）
             "scanDepthMm": 120.0,  # 扫查深度，单位 mm
             "soundVelocityMps": 5900.0,  # 声速，单位 m/s（如钢材）
+            "probeDelayUs": 0.0,  # 零点/楔块延迟，单位 us
             "gateStartMm": 25.0,  # 检测门起点深度，单位 mm
             "gateEndMm": 95.0,  # 检测门终点深度，单位 mm
             "defectProbability": 0.28,  # 模拟缺陷出现概率（0~1）
@@ -81,6 +82,7 @@ class UltrasonicSignalModel:
         self.parameters["thresholdLevel"] = float(np.clip(self.parameters["thresholdLevel"], 0.05, 1.2))
         self.parameters["scanDepthMm"] = float(np.clip(self.parameters["scanDepthMm"], 10.0, 600.0))
         self.parameters["soundVelocityMps"] = float(np.clip(self.parameters["soundVelocityMps"], 500.0, 9000.0))
+        self.parameters["probeDelayUs"] = float(np.clip(self.parameters["probeDelayUs"], -200.0, 2000.0))
         self.parameters["defectProbability"] = float(np.clip(self.parameters["defectProbability"], 0.0, 1.0))
         self.parameters["noiseLevel"] = float(np.clip(self.parameters["noiseLevel"], 0.0, 0.35))
         self.parameters["historyFrames"] = float(np.clip(self.parameters["historyFrames"], 60.0, 600.0))
@@ -248,10 +250,13 @@ class UltrasonicSignalModel:
         """深度（mm）转往返传播时间（s）。"""
         depthMeter = depthMm / 1000.0
         soundVelocityMps = self.parameters["soundVelocityMps"]
-        return (2.0 * depthMeter) / soundVelocityMps
+        probeDelaySec = self.parameters.get("probeDelayUs", 0.0) * 1e-6
+        return probeDelaySec + (2.0 * depthMeter) / soundVelocityMps
 
     def _timeSecToDepthMm(self, timeSec: float) -> float:
         """往返传播时间（s）转深度（mm）。"""
         soundVelocityMps = self.parameters["soundVelocityMps"]
-        depthMeter = (timeSec * soundVelocityMps) / 2.0
+        probeDelaySec = self.parameters.get("probeDelayUs", 0.0) * 1e-6
+        effectiveTimeSec = max(timeSec - probeDelaySec, 0.0)
+        depthMeter = (effectiveTimeSec * soundVelocityMps) / 2.0
         return depthMeter * 1000.0
