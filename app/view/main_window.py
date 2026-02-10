@@ -96,6 +96,7 @@ class MainWindow(QMainWindow):
         self.gateMinWidthUs = 0.04
         self.gridVisible = True
         self.displayUnitMode = "us"
+        self.cursorLabelVisible = True
         self.currentSoundVelocityMps = 5900.0
         self.currentProbeDelayUs = 0.0
         self.lastTimeAxisUs = np.array([], dtype=np.float32)
@@ -188,9 +189,13 @@ class MainWindow(QMainWindow):
         self.toggleGridAction.setCheckable(True)
         self.toggleGridAction.setChecked(True)
         self.clearPeakAction = QAction("清除峰值标记", self)
+        self.toggleCursorLabelAction = QAction("显示游标标签", self)
+        self.toggleCursorLabelAction.setCheckable(True)
+        self.toggleCursorLabelAction.setChecked(True)
         self.viewMenu.addAction(self.autoScaleAction)
         self.viewMenu.addAction(self.toggleGridAction)
         self.viewMenu.addAction(self.clearPeakAction)
+        self.viewMenu.addAction(self.toggleCursorLabelAction)
 
         self.aboutAction = QAction("关于本系统", self)
         self.helpMenu.addAction(self.aboutAction)
@@ -342,8 +347,9 @@ class MainWindow(QMainWindow):
             fill=pg.mkBrush(18, 12, 8, 170),
             border=pg.mkPen("#ffb86b", width=0.8),
         )
-        self.aScanPlot.addItem(self.cursorLabelA)
-        self.aScanPlot.addItem(self.cursorLabelB)
+        # 关键：ignoreBounds=True，避免游标标签参与自动范围计算导致Y轴漂移。
+        self.aScanPlot.addItem(self.cursorLabelA, ignoreBounds=True)
+        self.aScanPlot.addItem(self.cursorLabelB, ignoreBounds=True)
 
         # 底部缺陷列表表格。
         self.defectTableWidget = QTableWidget(0, 3, self)
@@ -475,6 +481,8 @@ class MainWindow(QMainWindow):
         acquisitionButtonLayout.addWidget(self.singleShotButton)
 
         self.peakHoldCheckBox = QCheckBox("峰值保持", acquisitionGroup)
+        self.cursorLabelVisibleCheckBox = QCheckBox("显示游标标签", acquisitionGroup)
+        self.cursorLabelVisibleCheckBox.setChecked(True)
 
         referenceButtonRow = QWidget(acquisitionGroup)
         referenceButtonLayout = QHBoxLayout(referenceButtonRow)
@@ -489,6 +497,7 @@ class MainWindow(QMainWindow):
         acquisitionLayout.addRow("显示单位", self.unitModeComboBox)
         acquisitionLayout.addRow("采样操作", acquisitionButtonRow)
         acquisitionLayout.addRow("", self.peakHoldCheckBox)
+        acquisitionLayout.addRow("", self.cursorLabelVisibleCheckBox)
         acquisitionLayout.addRow("参考波形", referenceButtonRow)
 
         dockLayout.addWidget(acquisitionGroup)
@@ -647,6 +656,7 @@ class MainWindow(QMainWindow):
         self.autoScaleAction.triggered.connect(self._autoScalePlot)
         self.toggleGridAction.toggled.connect(self._toggleGridVisibility)
         self.clearPeakAction.triggered.connect(self._clearPeakMarker)
+        self.toggleCursorLabelAction.toggled.connect(self._setCursorLabelVisible)
         self.resetGateAction.triggered.connect(self._resetGateLinesToDefault)
         self.velocityCalibrationAction.triggered.connect(self.velocityCalibrationRequested.emit)
         self.zeroCalibrationAction.triggered.connect(self.zeroCalibrationRequested.emit)
@@ -664,6 +674,7 @@ class MainWindow(QMainWindow):
         self.gateStartUsSpinBox.valueChanged.connect(self._syncGateLinesFromInputs)
         self.gateWidthUsSpinBox.valueChanged.connect(self._syncGateLinesFromInputs)
         self.gateLevelSpinBox.valueChanged.connect(self._syncGateLinesFromInputs)
+        self.cursorLabelVisibleCheckBox.toggled.connect(self._setCursorLabelVisible)
         self.cursorLineA.sigPositionChanged.connect(self._updateCursorReadout)
         self.cursorLineB.sigPositionChanged.connect(self._updateCursorReadout)
 
@@ -913,7 +924,7 @@ class MainWindow(QMainWindow):
         viewRange = self.aScanPlot.getPlotItem().viewRange()
         yMin, yMax = viewRange[1]
         ySpan = max(yMax - yMin, 1e-6)
-        yLabel = yMax - ySpan * 0.02
+        yLabel = yMin + ySpan * 0.90
         self.cursorLabelA.setPos(cursorAUs, yLabel)
         self.cursorLabelB.setPos(cursorBUs, yLabel)
         if self.displayUnitMode == "mm":
@@ -1085,6 +1096,19 @@ class MainWindow(QMainWindow):
         self.gridVisible = bool(isVisible)
         gridAlpha = 0.35 if self.gridVisible else 0.0
         self.aScanPlot.showGrid(x=self.gridVisible, y=self.gridVisible, alpha=gridAlpha)
+
+    def _setCursorLabelVisible(self, isVisible: bool) -> None:
+        """设置游标标签显示开关，并同步菜单和面板控件。"""
+        self.cursorLabelVisible = bool(isVisible)
+        self.cursorLabelA.setVisible(self.cursorLabelVisible)
+        self.cursorLabelB.setVisible(self.cursorLabelVisible)
+
+        self.toggleCursorLabelAction.blockSignals(True)
+        self.cursorLabelVisibleCheckBox.blockSignals(True)
+        self.toggleCursorLabelAction.setChecked(self.cursorLabelVisible)
+        self.cursorLabelVisibleCheckBox.setChecked(self.cursorLabelVisible)
+        self.toggleCursorLabelAction.blockSignals(False)
+        self.cursorLabelVisibleCheckBox.blockSignals(False)
 
     def _clearPeakMarker(self) -> None:
         """清除当前红色峰值标记。"""
