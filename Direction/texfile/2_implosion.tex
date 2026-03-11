@@ -16,18 +16,17 @@
 \par
 软件启动后，主窗口标题显示为“超声波智能辅助检测系统 V1.0”，状态栏显示系统状态、当前时间与探头连接状态（仿真模式）。
 
-% [图片占位] 图2-1 主界面整体截图
-% 建议图片路径：image/ui_main.png
-% 建议插入代码（取消注释即可）：
-% \begin{figure}[H]
-%   \centering
-%   \includegraphics[width=0.95\linewidth]{image/ui_main.png}
-%   \caption{主界面整体截图}
-% \end{figure}
+
 
 \subsection{主界面组成与布局}
 \par
-软件主界面由菜单栏、工具栏、波形显示区、右侧控制面板与底部缺陷表格构成：
+软件主界面由菜单栏、工具栏、波形显示区、右侧控制面板与底部缺陷表格构成，如图1所示：
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.95\linewidth]{image/ui_main.png}
+	\caption{主界面整体}
+	\label{fig:ui_main}
+\end{figure}
 \begin{enumerate}
 	\item 菜单栏：文件、设置、视图、帮助；
 	\item 工具栏：打开、保存、开始检测、停止检测、冻结、单次采样、生成报告等快捷按钮；
@@ -72,19 +71,22 @@
 
 \subsection{闸门（Gate A）设置与使用}
 \par
-闸门用于在指定窗口内进行峰值检测与报警/记录。本软件采用现场常见的 Start/Width/Level 三参数线性闸门：
+闸门用于在指定窗口内进行峰值检测与报警/记录。本软件采用常见的 Start/Width/Level 三参数线性闸门：
 \begin{enumerate}
 	\item Start：闸门起点（对应波形时间或深度轴上的起始位置）；
 	\item Width：闸门宽度（闸门终点 = Start + Width）；
 	\item Level：门限高度（以屏高比例表示，用于触发判定）。
 \end{enumerate}
 \par
-闸门在波形图上以三条线表示：两条\textbf{可拖拽竖线}表示窗口起止位置，一条\textbf{可拖拽横线}表示门限。用户可在右侧输入框中精确输入 Start/Width/Level，也可直接在图上拖拽调整，二者会自动联动。
+，一条\textbf{可拖拽横线}表示门限。用户可在右侧输入框中精确输入 Start/Width/Level，也可直接在图上拖拽调整，二者会自动联动。
 \par
-闸门检测逻辑为：在闸门窗口内搜索最大波峰值（Peak），当 Peak 超过门限时，波形图会用红色圆点标记峰值位置，并在右侧更新定量结果（深度、水平距离、dB 差值等）。
+闸门检测逻辑为：在闸门窗口内搜索最大波峰值（Peak），当 Peak 超过门限时，波形图会用红色圆点标记峰值位置，并在右侧更新定量结果（深度、水平距离、dB 差值等）。界面效果如图2所示。
 
-% [图片占位] 图2-2 闸门线（Start/End/Level）截图
-% 建议图片路径：image/gate_lines.png
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.95\linewidth]{image/gate_lines.png}
+	\caption{阀门线（Start/End/Level）}
+\end{figure}
 
 \subsection{游标 A/B 测量}
 \par
@@ -96,8 +98,16 @@
 	\item 游标标签固定显示在图形高度约 90\% 处，避免遮挡波形细节。
 \end{enumerate}
 
-% [图片占位] 图2-3 游标 A/B 与读数区域截图
-% 建议图片路径：image/cursor_ab.png
+\par
+如图\ref{fig:cursor_ab}所示，游标 A 和 B 分别以蓝色和橙色竖线标记在波形图上，右侧控制面板同步显示其位置及差值信息。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.95\linewidth]{image/cursor_ab.png}
+	\caption{游标 A/B 与读数区域}
+	\label{fig:cursor_ab}
+\end{figure}
+\FloatBarrier
 
 \subsection{缺陷记录与表格管理}
 \par
@@ -109,8 +119,13 @@
 	\item 实时行不可删除，历史行支持键盘 Delete 删除。
 \end{enumerate}
 
-% [图片占位] 图2-4 缺陷表格与右键菜单截图
-% 建议图片路径：image/defect_table.png
+% 插入图4：缺陷表格与右键菜单
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.95\textwidth]{image/defect.png}
+	\caption{缺陷记录表格及右键上下文菜单}
+	\label{fig:defect_table_menu}
+\end{figure}
 
 \subsection{数据保存与导出}
 \par
@@ -125,16 +140,30 @@
 \subsection{报告生成与判定规则}
 \par
 点击“生成报告”将弹出报告预览窗口，并可保存为 HTML 文件。报告内容包含：
+
+% 插入图5：报告预览窗口
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.90\textwidth]{image/report_preview.png}
+	\caption{报告预览窗口}
+	\label{fig:report_preview}
+\end{figure}
 \begin{enumerate}
 	\item 检测时间、工件名称（当前默认“工件-001”）与基础参数；
 	\item 当前波形总览截图；
 	\item 每条缺陷记录对应的波形截图（用于追溯）。
 \end{enumerate}
+
+% 插入图6：完整报告
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.90\textwidth]{image/report.png}
+	\caption{完整报告}
+	\label{fig:complete_report}
+\end{figure}
 \par
 判定规则：当存在缺陷记录，或当前帧闸门触发时，判定为“不合格”；否则判定为“合格”。此规则保证报告结论与记录数据一致，避免“有缺陷但合格”的逻辑矛盾。
-
-% [图片占位] 图2-5 报告预览窗口截图
-% 建议图片路径：image/report_preview.png
+\FloatBarrier
 
 \subsection{校准功能（声速与零点）}
 \par
@@ -143,10 +172,25 @@
 	\item 声速校准：根据已知厚度与实测往返时间推算声速；
 	\item 零点校准（Probe Delay）：对系统零点延迟进行补偿，改善浅表读数。
 \end{enumerate}
+% 插入图7：校准功能界面截图
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.95\textwidth]{image/calibration_menu.png}
+	\caption{校准功能界面（包含声速校准、零点校准等选项）}
+	\label{fig:calibration_menu}
+\end{figure}
 \par
 校准参数支持保存/加载（JSON），便于不同材料/工件快速切换。
+\FloatBarrier
 
 \subsection{鼠标右键菜单（波形区）}
+% 插入图8：波形区右键菜单界面截图
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.95\textwidth]{image/context_menu_waveform.png}
+	\caption{波形区右键菜单界面（包含自动缩放、闸门复位、清除峰值标记等功能）}
+	\label{fig:context_menu_waveform}
+\end{figure}
 \par
 在波形图区域点击鼠标右键，可打开中文快捷菜单（例如：自动缩放、闸门复位、清除峰值标记、显示网格开关等），用于提升操作效率。
 
