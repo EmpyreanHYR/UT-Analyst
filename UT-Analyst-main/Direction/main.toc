@@ -1,0 +1,26 @@
+\contentsline {section}{文件修订记录}{3}{}%
+\contentsline {section}{\numberline {1}软件概述}{4}{}%
+\contentsline {subsection}{\numberline {1.1}项目背景}{4}{}%
+\contentsline {subsection}{\numberline {1.2}编写目的}{4}{}%
+\contentsline {subsection}{\numberline {1.3}适用对象}{4}{}%
+\contentsline {subsection}{\numberline {1.4}适用范围}{4}{}%
+\contentsline {subsection}{\numberline {1.5}软件特点}{5}{}%
+\contentsline {subsection}{\numberline {1.6}运行环境}{5}{}%
+\contentsline {subsection}{\numberline {1.7}术语与缩略语}{6}{}%
+\contentsline {section}{\numberline {2}操作教程}{7}{}%
+\contentsline {subsection}{\numberline {2.1}安装与启动}{7}{}%
+\contentsline {subsection}{\numberline {2.2}主界面组成与布局}{7}{}%
+\contentsline {subsection}{\numberline {2.3}检测参数设置}{8}{}%
+\contentsline {subsection}{\numberline {2.4}采集控制（开始/停止/冻结/单次）}{8}{}%
+\contentsline {subsection}{\numberline {2.5}闸门（Gate A）设置与使用}{9}{}%
+\contentsline {subsection}{\numberline {2.6}游标 A/B 测量}{10}{}%
+\contentsline {subsection}{\numberline {2.7}缺陷记录与表格管理}{11}{}%
+\contentsline {subsection}{\numberline {2.8}数据保存与导出}{12}{}%
+\contentsline {subsection}{\numberline {2.9}报告生成与判定规则}{12}{}%
+\contentsline {subsection}{\numberline {2.10}校准功能（声速与零点）}{14}{}%
+\contentsline {subsection}{\numberline {2.11}鼠标右键菜单（波形区）}{14}{}%
+\contentsline {subsection}{\numberline {2.12}常见问题}{15}{}%
+\contentsline {section}{\numberline {3}总结展望}{16}{}%
+\contentsline {subsection}{\numberline {3.1}总结}{16}{}%
+\contentsline {subsection}{\numberline {3.2}展望}{16}{}%
+\contentsfinish 
