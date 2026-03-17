@@ -155,7 +155,7 @@
 	张旭琳\\
 	陈彩蝶\\
 	高新雅\\
-	黄耀荣\\
+	黄耀荣
 }
 
 % 带前缀的完整作者显示（“作者：”不参与替换）
@@ -188,7 +188,7 @@
 			使用说明
 	}} 
 	% 设置作者和日期
-	\author{ 张旭琳\\陈彩蝶\\高新雅\\黄耀荣 }
+	\author{ \BasicAuthor }
 	\date{}
 	\maketitle
 	\newpage
@@ -202,12 +202,11 @@
 	\renewcommand{\arraystretch}{1.5} % 调整行高为原来的 1.5 倍
 	
 	\begin{center}
-		\begin{tabular}{ | m{1.5cm}<{\centering}|m{4cm}<{\centering} | m{8.5cm}<{\centering} | c |m{2.5cm}<{\centering} |}
+		\begin{tabular}{ | m{1.5cm}<{\centering}|m{4cm}<{\centering} | m{5cm}<{\centering} | m{3.5cm}<{\centering} |}
 			\hline
 			版本号 & 生成日期 & 作者 & 修订内容 \\ % 表头
 			\hline
-			\Version & 2026年2月10日 & 
-张旭琳，陈彩蝶，高新雅，黄耀荣 & 初始版本 \\ % 第一行
+			\Version & 2026年2月10日 & \RevisedAuthor & 初始版本 \\ % 第一行
 			\hline
 			&  &  &  \\ % 第二行
 			\hline
