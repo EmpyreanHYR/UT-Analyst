@@ -980,7 +980,11 @@ class MainWindow(QMainWindow):
         if timeAxisUs.size > 1:
             xMinUs = float(timeAxisUs[0])
             xMaxUs = float(timeAxisUs[-1])
-            self.aScanPlot.setXRange(xMinUs, xMaxUs, padding=0.01)
+
+            # 启用 X 轴自动范围：让 pyqtgraph 根据已绑定数据自动计算视图边界，
+            # 避免手动 setXRange 与实际数据边界不一致导致刻度出现空缺。
+            self.aScanPlot.enableAutoRange(axis="x", enable=True)
+
             if self.autoScaleYEnabled:
                 self.aScanPlot.enableAutoRange(axis="y", enable=True)
             else:
