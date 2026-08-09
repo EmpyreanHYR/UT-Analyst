@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import html
 import json
+import logging
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -14,9 +15,12 @@ from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QObject, QTimer
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QFileDialog, QInputDialog
 
+from app.common.unit_converter import time_us_to_depth_mm
 from app.model.ultrasonic_model import UltrasonicSignalModel
 from app.view.main_window import MainWindow
 from app.view.report_preview_window import ReportPreviewWindow
+
+logger = logging.getLogger("ut_analyst.controller")
 
 
 class MainController(QObject):
@@ -62,6 +66,9 @@ class MainController(QObject):
             "peakPercent": 0.0,
             "gateTriggered": False,
         }
+
+        # 工件名称：可由用户自定义，用于报告导出。
+        self.workpieceName: str = "工件-001"
 
         # 报告预览窗口与报告上下文缓存。
         self.reportPreviewWindow: ReportPreviewWindow | None = None
@@ -127,6 +134,7 @@ class MainController(QObject):
         if self.freezeEnabled:
             self.setFreezeEnabled(False)
         self.acquisitionTimer.start()
+        logger.info("实时采集已启动，刷新间隔 %d ms", self.acquisitionTimer.interval())
         self.view.showStatusMessage("实时采集已启动。")
 
     def stopAcquisition(self) -> None:
@@ -138,6 +146,7 @@ class MainController(QObject):
             return
         self.stopRecording(showMessage=False)
         self.acquisitionTimer.stop()
+        logger.info("实时采集已停止")
         self.view.showStatusMessage("实时采集已停止。")
 
     def singleShotAcquisition(self) -> None:
@@ -340,6 +349,7 @@ class MainController(QObject):
         )
         self._refreshFrame()
         self.view.showStatusMessage(f"声速校准完成：{self.model.parameters['soundVelocityMps']:.1f} m/s", 2200)
+        logger.info("声速校准完成：%.1f m/s", self.model.parameters["soundVelocityMps"])
 
     def calibrateProbeDelay(self) -> None:
         """根据已知厚度与实测时间校准零点延迟。"""
@@ -379,6 +389,7 @@ class MainController(QObject):
         )
         self._refreshFrame()
         self.view.showStatusMessage(f"零点校准完成：{self.model.parameters.get('probeDelayUs', 0.0):.2f} us", 2200)
+        logger.info("零点校准完成：%.2f us", self.model.parameters.get("probeDelayUs", 0.0))
 
     def saveCalibrationFile(self) -> None:
         """保存校准参数到 JSON 文件。"""
@@ -404,7 +415,9 @@ class MainController(QObject):
             }
             outputPath.write_text(json.dumps(calibrationPayload, ensure_ascii=False, indent=2), encoding="utf-8")
             self.view.showStatusMessage(f"校准参数已保存：{outputPath.name}", 1800)
+            logger.info("校准参数已保存：%s", outputPath)
         except Exception as error:  # pragma: no cover - GUI 场景下保底异常提示
+            logger.error("保存校准失败：%s", error, exc_info=True)
             self.view.showStatusMessage(f"保存校准失败：{error}", durationMs=2600, isWarning=True)
 
     def loadCalibrationFile(self) -> None:
@@ -437,7 +450,9 @@ class MainController(QObject):
             )
             self._refreshFrame()
             self.view.showStatusMessage(f"校准参数已加载：{Path(filePath).name}", 1800)
+            logger.info("校准参数已加载：%s", filePath)
         except Exception as error:  # pragma: no cover - GUI 场景下保底异常提示
+            logger.error("加载校准失败：%s", error, exc_info=True)
             self.view.showStatusMessage(f"加载校准失败：{error}", durationMs=2600, isWarning=True)
 
     def openDataFile(self) -> None:
@@ -513,6 +528,7 @@ class MainController(QObject):
             self._renderCurrentFrame(frameData)
             self.view.showStatusMessage(f"已加载波形文件：{inputPath.name}", 2000)
         except Exception as error:  # pragma: no cover - GUI 场景下保底异常提示
+            logger.error("加载数据失败：%s", error, exc_info=True)
             self.view.showStatusMessage(f"加载数据失败：{error}", durationMs=3200, isWarning=True)
 
     def saveWaveformData(self) -> None:
@@ -546,7 +562,9 @@ class MainController(QObject):
             else:
                 self._saveWaveformAsJson(outputPath)
             self.view.showStatusMessage(f"数据保存成功：{outputPath.name}")
+            logger.info("波形数据已保存：%s", outputPath)
         except Exception as error:  # pragma: no cover - GUI 场景下保底异常提示
+            logger.error("数据保存失败：%s", error, exc_info=True)
             self.view.showStatusMessage(
                 f"数据保存失败：{error}",
                 durationMs=3200,
@@ -569,8 +587,17 @@ class MainController(QObject):
                 self.view.showStatusMessage("当前无可用波形数据，无法生成报告。", isWarning=True)
                 return
 
-            # 为避免阻塞式对话框造成“点击无反应”体验，先使用默认工件名。
-            workpieceName = "工件-001"
+            # 允许用户自定义工件名称，方便报告标识。
+            workpieceNameInput, isConfirmed = QInputDialog.getText(
+                self.view,
+                "报告参数",
+                "请输入工件名称：",
+                text=self.workpieceName,
+            )
+            if not isConfirmed:
+                return
+            workpieceName = workpieceNameInput.strip() or self.workpieceName
+            self.workpieceName = workpieceName
 
             waveformPixmap = self.view.aScanPlot.grab()
             overviewImageDataUri = self._pixmapToDataUri(waveformPixmap)
@@ -610,7 +637,9 @@ class MainController(QObject):
             self.reportPreviewWindow.raise_()
             self.reportPreviewWindow.activateWindow()
             self.view.showStatusMessage("报告预览已打开。", 1800)
+            logger.info("报告预览已生成")
         except Exception as error:  # pragma: no cover - GUI 场景下保底异常提示
+            logger.error("生成报告失败：%s", error, exc_info=True)
             self.view.showStatusMessage(f"生成报告失败：{error}", durationMs=3500, isWarning=True)
 
     def saveCurrentReport(self) -> None:
@@ -637,7 +666,9 @@ class MainController(QObject):
             outputPath.write_text(self.currentReportHtmlTemplate, encoding="utf-8")
 
             self.view.showStatusMessage(f"报告保存成功：{outputPath.name}")
+            logger.info("报告已保存：%s", outputPath)
         except Exception as error:  # pragma: no cover - GUI 场景下保底异常提示
+            logger.error("报告保存失败：%s", error, exc_info=True)
             self.view.showStatusMessage(
                 f"报告保存失败：{error}",
                 durationMs=3200,
@@ -1048,13 +1079,12 @@ class MainController(QObject):
         return f"data:image/png;base64,{encodedData}"
 
     def _timeUsToDepthMm(self, timeUs: float) -> float:
-        """将传播时间（us）换算为声程深度（mm）。"""
-        soundVelocityMps = self.model.parameters["soundVelocityMps"]
-        probeDelayUs = self.model.parameters.get("probeDelayUs", 0.0)
-        effectiveTimeUs = max(timeUs - probeDelayUs, 0.0)
-        timeSec = effectiveTimeUs * 1e-6
-        depthMeter = (timeSec * soundVelocityMps) / 2.0
-        return depthMeter * 1000.0
+        """将传播时间（us）换算为声程深度（mm）。委托给统一换算模块。"""
+        return time_us_to_depth_mm(
+            timeUs,
+            self.model.parameters["soundVelocityMps"],
+            self.model.parameters.get("probeDelayUs", 0.0),
+        )
 
     @staticmethod
     def _calculateDbDifference(peakAmplitude: float, referenceAmplitude: float) -> float | None:

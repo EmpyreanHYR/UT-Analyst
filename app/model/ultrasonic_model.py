@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 
+from app.common.unit_converter import depth_mm_to_time_sec, time_sec_to_depth_mm
 from app.model.signal_generator import SignalGenerator
 
 
@@ -247,16 +248,17 @@ class UltrasonicSignalModel:
         return gateStartIndex, gateEndIndex
 
     def _depthMmToTimeSec(self, depthMm: float) -> float:
-        """深度（mm）转往返传播时间（s）。"""
-        depthMeter = depthMm / 1000.0
-        soundVelocityMps = self.parameters["soundVelocityMps"]
-        probeDelaySec = self.parameters.get("probeDelayUs", 0.0) * 1e-6
-        return probeDelaySec + (2.0 * depthMeter) / soundVelocityMps
+        """深度（mm）转往返传播时间（s）。委托给统一换算模块。"""
+        return depth_mm_to_time_sec(
+            depthMm,
+            self.parameters["soundVelocityMps"],
+            self.parameters.get("probeDelayUs", 0.0),
+        )
 
     def _timeSecToDepthMm(self, timeSec: float) -> float:
-        """往返传播时间（s）转深度（mm）。"""
-        soundVelocityMps = self.parameters["soundVelocityMps"]
-        probeDelaySec = self.parameters.get("probeDelayUs", 0.0) * 1e-6
-        effectiveTimeSec = max(timeSec - probeDelaySec, 0.0)
-        depthMeter = (effectiveTimeSec * soundVelocityMps) / 2.0
-        return depthMeter * 1000.0
+        """往返传播时间（s）转深度（mm）。委托给统一换算模块。"""
+        return time_sec_to_depth_mm(
+            timeSec,
+            self.parameters["soundVelocityMps"],
+            self.parameters.get("probeDelayUs", 0.0),
+        )

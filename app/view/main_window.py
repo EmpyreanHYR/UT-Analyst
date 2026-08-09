@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from app.common.unit_converter import depth_mm_to_time_us, time_us_to_depth_mm
+
 from datetime import datetime
 from typing import Optional
 
@@ -700,15 +702,12 @@ class MainWindow(QMainWindow):
         self.customVelocitySpinBox.setVisible(isCustomMode)
 
     def _toDepthMm(self, timeUs: float) -> float:
-        """将传播时间(us)转换为等效深度(mm)。"""
-        effectiveTimeUs = max(timeUs - self.currentProbeDelayUs, 0.0)
-        depthMeter = (effectiveTimeUs * 1e-6 * self.currentSoundVelocityMps) / 2.0
-        return depthMeter * 1000.0
+        """将传播时间(us)转换为等效深度(mm)。委托给统一换算模块。"""
+        return time_us_to_depth_mm(timeUs, self.currentSoundVelocityMps, self.currentProbeDelayUs)
 
     def _toTimeUs(self, depthMm: float) -> float:
-        """将等效深度(mm)转换为传播时间(us)。"""
-        depthMeter = max(depthMm, 0.0) / 1000.0
-        return self.currentProbeDelayUs + (2.0 * depthMeter / max(self.currentSoundVelocityMps, 1.0)) * 1e6
+        """将等效深度(mm)转换为传播时间(us)。委托给统一换算模块。"""
+        return depth_mm_to_time_us(depthMm, self.currentSoundVelocityMps, self.currentProbeDelayUs)
 
     def _unitToDisplay(self, timeUs: float) -> float:
         """按当前单位模式转换显示值。"""

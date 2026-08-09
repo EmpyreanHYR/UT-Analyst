@@ -6,10 +6,14 @@ import sys
 
 from PyQt5.QtWidgets import QApplication
 
+from app.common.logging_config import setup_logging
 from app.common.theme import buildDarkIndustrialStyleSheet
 from app.controller.main_controller import MainController
 from app.model.ultrasonic_model import UltrasonicSignalModel
 from app.view.main_window import MainWindow
+
+# 初始化日志系统。
+logger = setup_logging()
 
 
 def main() -> int:
@@ -22,6 +26,7 @@ def main() -> int:
     3. 创建 MVC 三层对象并建立连接；
     4. 显示主窗口，进入事件循环。
     """
+    logger.info("应用启动")
     application = QApplication(sys.argv)
     application.setApplicationName("超声波智能辅助检测系统")
     application.setStyleSheet(buildDarkIndustrialStyleSheet())
@@ -32,6 +37,7 @@ def main() -> int:
     mainWindow.mainController = MainController(model=signalModel, view=mainWindow)
 
     mainWindow.show()
+    logger.info("主窗口已显示，进入事件循环")
     return application.exec_()
 
 
