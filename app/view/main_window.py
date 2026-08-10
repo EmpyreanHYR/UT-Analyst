@@ -3,6 +3,10 @@
 from __future__ import annotations
 
 from app.common.unit_converter import depth_mm_to_time_us, time_us_to_depth_mm
+from app.common.layout_manager import LayoutManager
+from app.common.shortcut_manager import ShortcutManager
+from app.view.fft_panel import FFTPanel
+from app.view.statistics_panel import StatisticsPanel
 
 from datetime import datetime
 from typing import Optional
@@ -75,6 +79,9 @@ class MainWindow(QMainWindow):
     openRequested = pyqtSignal()
     saveRequested = pyqtSignal()
     reportRequested = pyqtSignal()
+    
+    # 统计分析相关信号
+    defectStatisticsRefreshRequested = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -114,15 +121,21 @@ class MainWindow(QMainWindow):
         self.clockTimer.setInterval(1000)
         self.clockTimer.timeout.connect(self._updateCurrentTime)
 
+        # 布局管理器和快捷键管理器。
+        self.layoutManager = LayoutManager()
+        self.shortcutManager = ShortcutManager(self)
+
         self._buildMenuBar()
         self._buildToolBar()
         self._buildCentralArea()
         self._buildControlDock()
         self._buildStatusBar()
         self._connectInternalSignals()
+        self._registerShortcuts()
 
         self._updateCurrentTime()
         self.clockTimer.start()
+        self._restoreLayout()
 
     def _buildMenuBar(self) -> None:
         """构建顶部菜单栏。"""
@@ -195,12 +208,27 @@ class MainWindow(QMainWindow):
         self.toggleCursorLabelAction = QAction("显示游标标签", self)
         self.toggleCursorLabelAction.setCheckable(True)
         self.toggleCursorLabelAction.setChecked(True)
+        self.toggleFFTAction = QAction("频谱分析面板", self)
+        self.toggleFFTAction.setCheckable(True)
+        self.toggleFFTAction.setChecked(False)
+        self.toggleFFTAction.setShortcut("F5")
+        self.toggleStatisticsAction = QAction("缺陷统计面板", self)
+        self.toggleStatisticsAction.setCheckable(True)
+        self.toggleStatisticsAction.setChecked(False)
+        self.toggleStatisticsAction.setShortcut("F6")
+        
         self.viewMenu.addAction(self.autoScaleAction)
         self.viewMenu.addAction(self.toggleGridAction)
         self.viewMenu.addAction(self.clearPeakAction)
         self.viewMenu.addAction(self.toggleCursorLabelAction)
+        self.viewMenu.addSeparator()
+        self.viewMenu.addAction(self.toggleFFTAction)
+        self.viewMenu.addAction(self.toggleStatisticsAction)
 
         self.aboutAction = QAction("关于本系统", self)
+        self.shortcutHelpAction = QAction("快捷键帮助", self)
+        self.shortcutHelpAction.setShortcut("F1")
+        self.helpMenu.addAction(self.shortcutHelpAction)
         self.helpMenu.addAction(self.aboutAction)
 
     def _buildToolBar(self) -> None:
@@ -589,6 +617,28 @@ class MainWindow(QMainWindow):
 
         self.controlDockWidget.setWidget(controlScrollArea)
         self.addDockWidget(Qt.RightDockWidgetArea, self.controlDockWidget)
+        
+        # 创建FFT频谱分析面板（底部DockWidget）
+        self.fftDockWidget = QDockWidget("频谱分析", self)
+        self.fftDockWidget.setAllowedAreas(Qt.BottomDockWidgetArea)
+        
+        self.fftPanel = FFTPanel(self.fftDockWidget)
+        self.fftDockWidget.setWidget(self.fftPanel)
+        
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.fftDockWidget)
+        # 默认隐藏FFT面板，用户可以通过菜单或快捷键显示
+        self.fftDockWidget.setVisible(False)
+        
+        # 创建缺陷统计分析面板（左侧DockWidget）
+        self.statisticsDockWidget = QDockWidget("缺陷统计分析", self)
+        self.statisticsDockWidget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        
+        self.statisticsPanel = StatisticsPanel(self.statisticsDockWidget)
+        self.statisticsDockWidget.setWidget(self.statisticsPanel)
+        
+        self.addDockWidget(Qt.LeftDockWidgetArea, self.statisticsDockWidget)
+        # 默认隐藏统计面板
+        self.statisticsDockWidget.setVisible(False)
 
     def _buildStatusBar(self) -> None:
         """
@@ -660,12 +710,15 @@ class MainWindow(QMainWindow):
         self.toggleGridAction.toggled.connect(self._toggleGridVisibility)
         self.clearPeakAction.triggered.connect(self._clearPeakMarker)
         self.toggleCursorLabelAction.toggled.connect(self._setCursorLabelVisible)
+        self.toggleFFTAction.toggled.connect(self._toggleFFTVisibility)
+        self.toggleStatisticsAction.toggled.connect(self._toggleStatisticsVisibility)
         self.resetGateAction.triggered.connect(self._resetGateLinesToDefault)
         self.velocityCalibrationAction.triggered.connect(self.velocityCalibrationRequested.emit)
         self.zeroCalibrationAction.triggered.connect(self.zeroCalibrationRequested.emit)
         self.saveCalibrationAction.triggered.connect(self.saveCalibrationRequested.emit)
         self.loadCalibrationAction.triggered.connect(self.loadCalibrationRequested.emit)
         self.aboutAction.triggered.connect(self._showAboutDialog)
+        self.shortcutHelpAction.triggered.connect(self._showShortcutHelp)
 
         self.aScanPlot.customContextMenuRequested.connect(self._showPlotContextMenu)
         self.defectTableWidget.customContextMenuRequested.connect(self._showDefectTableContextMenu)
@@ -681,6 +734,67 @@ class MainWindow(QMainWindow):
         self.cursorLineA.sigPositionChanged.connect(self._updateCursorReadout)
         self.cursorLineB.sigPositionChanged.connect(self._updateCursorReadout)
 
+    def _toggleFFTVisibility(self, visible: bool) -> None:
+        """切换FFT频谱分析面板的显示状态。"""
+        self.fftDockWidget.setVisible(visible)
+        if visible:
+            # 确保FFT面板在底部显示
+            self.addDockWidget(Qt.BottomDockWidgetArea, self.fftDockWidget)
+
+    def _toggleStatisticsVisibility(self, visible: bool) -> None:
+        """切换缺陷统计面板的显示状态。"""
+        self.statisticsDockWidget.setVisible(visible)
+
+    def _registerShortcuts(self) -> None:
+        """注册快捷键到快捷键管理器。"""
+        sm = self.shortcutManager
+        sm.register_action("open_file", self.openAction)
+        sm.register_action("save_file", self.saveAction)
+        sm.register_action("generate_report", self.reportAction)
+        sm.register_action("start_acquisition", self.startScanAction)
+        sm.register_action("stop_acquisition", self.stopScanAction)
+        sm.register_action("freeze_toggle", self.freezeAction)
+        sm.register_action("single_shot", self.singleShotAction)
+        sm.register_action("capture_reference", self.captureReferenceAction)
+        sm.register_action("clear_reference", self.clearReferenceAction)
+        sm.register_action("auto_scale", self.autoScaleAction)
+        sm.register_action("toggle_grid", self.toggleGridAction)
+        sm.register_action("clear_peak", self.clearPeakAction)
+        sm.register_action("toggle_cursor_label", self.toggleCursorLabelAction)
+        sm.register_action("fft_toggle", self.toggleFFTAction)
+        sm.register_action("statistics_toggle", self.toggleStatisticsAction, "F6")
+        sm.register_action("delete_record", self.deleteRecordAction)
+        sm.register_action("clear_records", self.clearRecordAction)
+        sm.register_action("start_record", self.startRecordAction)
+        sm.register_action("stop_record", self.stopRecordAction)
+
+    def _restoreLayout(self) -> None:
+        """从配置文件恢复窗口布局。"""
+        geometry = self.layoutManager.load_window_geometry()
+        if geometry:
+            self.resize(geometry.get("width", 1360), geometry.get("height", 860))
+            x = geometry.get("x")
+            y = geometry.get("y")
+            if x is not None and y is not None:
+                self.move(x, y)
+        
+        dock_state = self.layoutManager.load_dock_layout()
+        if dock_state:
+            self.restoreState(dock_state)
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        """窗口关闭时保存布局。"""
+        geometry = {
+            "x": self.x(),
+            "y": self.y(),
+            "width": self.width(),
+            "height": self.height(),
+        }
+        self.layoutManager.save_window_geometry(geometry)
+        dock_state = self.saveState()
+        self.layoutManager.save_dock_layout(dock_state)
+        super().closeEvent(event)
+            
     def _syncGainFromSlider(self, sliderValue: int) -> None:
         """滑动条变化时同步更新增益输入框。"""
         if abs(self.gainSpinBox.value() - float(sliderValue)) > 1e-6:
@@ -981,15 +1095,26 @@ class MainWindow(QMainWindow):
             xMinUs = float(timeAxisUs[0])
             xMaxUs = float(timeAxisUs[-1])
 
-            # 启用 X 轴自动范围：让 pyqtgraph 根据已绑定数据自动计算视图边界，
-            # 避免手动 setXRange 与实际数据边界不一致导致刻度出现空缺。
-            self.aScanPlot.enableAutoRange(axis="x", enable=True)
+            # 禁用自动范围，改用 setRange 精确控制视图边界（padding=0），
+            # 确保数据显示区域紧贴 Widget 边缘，消除黑边。
+            self.aScanPlot.enableAutoRange(axis="x", enable=False)
+            self.aScanPlot.enableAutoRange(axis="y", enable=False)
 
             if self.autoScaleYEnabled:
-                self.aScanPlot.enableAutoRange(axis="y", enable=True)
+                # 自动 Y：以实际信号极值为边界
+                yMin = float(min(rawSignal.min(), envelopeSignal.min(), -1.0))
+                yMax = float(max(rawSignal.max(), envelopeSignal.max(), 1.0))
+                self.aScanPlot.setRange(
+                    xRange=(xMinUs, xMaxUs),
+                    yRange=(yMin, yMax),
+                    padding=0,
+                )
             else:
-                self.aScanPlot.enableAutoRange(axis="y", enable=False)
-                self.aScanPlot.setYRange(-1.3, 1.3, padding=0.02)
+                self.aScanPlot.setRange(
+                    xRange=(xMinUs, xMaxUs),
+                    yRange=(-1.3, 1.3),
+                    padding=0,
+                )
             self.cursorLineA.setBounds((xMinUs, xMaxUs))
             self.cursorLineB.setBounds((xMinUs, xMaxUs))
             self._updateCursorReadout()
@@ -1103,7 +1228,6 @@ class MainWindow(QMainWindow):
     def _autoScalePlot(self) -> None:
         """执行波形自动缩放。"""
         self.autoScaleYEnabled = True
-        self.aScanPlot.enableAutoRange(axis="y", enable=True)
         self.showStatusMessage("已开启Y轴自动缩放。", 1200)
 
     def _toggleGridVisibility(self, isVisible: bool) -> None:
@@ -1416,8 +1540,26 @@ class MainWindow(QMainWindow):
             self,
             "关于",
             "超声波智能辅助检测系统 V1.0\n"
-            "A-Scan 实时仿真 + 线性闸门检测 + 缺陷定量分析。",
+            "A-Scan 实时仿真 + 线性闸门检测 + 缺陷定量分析。\n\n"
+            "新增功能：频谱分析(FFT)、数字滤波、缺陷统计、\n"
+            "PDF报告导出、快捷键系统、界面布局记忆。",
         )
+
+    def _showShortcutHelp(self) -> None:
+        """显示快捷键帮助对话框。"""
+        tips = self.shortcutManager.get_shortcut_tips()
+        lines = ["<h3>快捷键一览</h3><table border='1' cellpadding='5' cellspacing='0' style='border-collapse:collapse;'>"]
+        lines.append("<tr><th>功能</th><th>快捷键</th></tr>")
+        for _, desc, shortcut in tips:
+            lines.append(f"<tr><td>{desc}</td><td><b>{shortcut}</b></td></tr>")
+        lines.append("</table>")
+        html = "".join(lines)
+
+        msg_box = QMessageBox(self)
+        msg_box.setWindowTitle("快捷键帮助")
+        msg_box.setTextFormat(Qt.RichText)
+        msg_box.setText(html)
+        msg_box.exec_()
 
     @staticmethod
     def _buildStatusSeparator() -> QLabel:
