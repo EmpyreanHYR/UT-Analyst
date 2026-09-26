@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QObject, QTimer
+from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QMetaObject, QObject, Qt, QThread, QTimer
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
@@ -20,6 +20,7 @@ from app.common.report_generator import ReportGenerator, ReportConfig
 from app.common.report_exporter import ReportExporter
 from app.model.ultrasonic_model import UltrasonicSignalModel
 from app.model.defect_analyzer import DefectAnalyzer, DefectRecord
+from app.model.acquisition import AcquisitionSource, AcquisitionWorker, SimulatorSource
 from app.model.gate_analyzer import GateAnalyzer, GateConfig, GateResult
 from app.model.scan_geometry import ScanGrid
 from app.model.session_repository import FrameChunkStore, SessionRepository
@@ -49,6 +50,8 @@ class MainController(QObject):
         session_repository: SessionRepository | None = None,
         frame_chunk_store: FrameChunkStore | None = None,
         data_dir: str | Path | None = None,
+        acquisition_source: AcquisitionSource | None = None,
+        use_worker: bool = True,
     ) -> None:
         super().__init__()
         self.model = model
@@ -125,6 +128,10 @@ class MainController(QObject):
         self.tcgProfile = TcgProfile()
         self.scanGrid = ScanGrid(10, 10, 5.0, 5.0)
         self.cScanValues: dict[int, float] = {}
+        self.acquisitionSource = acquisition_source or SimulatorSource(self.model)
+        self.useWorker = bool(use_worker)
+        self.acquisitionThread: QThread | None = None
+        self.acquisitionWorker: AcquisitionWorker | None = None
 
         self._bindSignals()
         self._initializeView()
@@ -196,24 +203,50 @@ class MainController(QObject):
 
     def startAcquisition(self) -> None:
         """启动实时采集。"""
-        if self.acquisitionTimer.isActive():
+        if self._isAcquisitionRunning():
             self.view.showStatusMessage("采集已在运行。")
             return
         self._ensureActiveSession()
         if self.freezeEnabled:
             self.setFreezeEnabled(False)
-        self.acquisitionTimer.start()
+        if self.useWorker:
+            self.acquisitionThread = QThread(self)
+            self.acquisitionWorker = AcquisitionWorker(
+                self.acquisitionSource,
+                interval_ms=self.acquisitionTimer.interval(),
+            )
+            self.acquisitionWorker.moveToThread(self.acquisitionThread)
+            self.acquisitionThread.started.connect(self.acquisitionWorker.start)
+            self.acquisitionWorker.frameReady.connect(self._handle_acquired_frame)
+            self.acquisitionWorker.errorRaised.connect(self._onAcquisitionError)
+            self.acquisitionThread.start()
+        else:
+            self.acquisitionTimer.start()
         logger.info("实时采集已启动，刷新间隔 %d ms", self.acquisitionTimer.interval())
         self.view.showStatusMessage("实时采集已启动。")
 
     def stopAcquisition(self) -> None:
         """停止实时采集。"""
-        if not self.acquisitionTimer.isActive():
+        if not self._isAcquisitionRunning():
             if self.recordingEnabled:
                 self.stopRecording(showMessage=False)
             self.view.showStatusMessage("采集已经停止。")
             return
         self.stopRecording(showMessage=False)
+        if self.acquisitionWorker is not None:
+            try:
+                QMetaObject.invokeMethod(
+                    self.acquisitionWorker,
+                    "stop",
+                    Qt.BlockingQueuedConnection,
+                )
+            except RuntimeError:
+                self.acquisitionWorker.stop()
+        if self.acquisitionThread is not None:
+            self.acquisitionThread.quit()
+            self.acquisitionThread.wait(3000)
+        self.acquisitionWorker = None
+        self.acquisitionThread = None
         self.acquisitionTimer.stop()
         self._finishActiveSession()
         logger.info("实时采集已停止")
@@ -221,13 +254,16 @@ class MainController(QObject):
 
     def singleShotAcquisition(self) -> None:
         """执行一次单帧采样。"""
+        if self._isAcquisitionRunning():
+            self.view.showStatusMessage("实时采集运行中，无法执行单次采样。", isWarning=True)
+            return
         session_started = self._ensureActiveSession()
         previousFreezeState = self.freezeEnabled
         if self.freezeEnabled:
             self.freezeEnabled = False
         self._refreshFrame()
         self.freezeEnabled = previousFreezeState
-        if session_started and not self.acquisitionTimer.isActive():
+        if session_started:
             self._finishActiveSession()
         self.view.showStatusMessage("单次采样完成。")
 
@@ -310,7 +346,7 @@ class MainController(QObject):
 
     def startRecording(self) -> None:
         """开启缺陷记录（仅对历史表格写入生效）。"""
-        if not self.acquisitionTimer.isActive():
+        if not self._isAcquisitionRunning():
             self.view.showStatusMessage("请先开始检测，再开启记录。", durationMs=1800, isWarning=True)
             return
         if self.recordingEnabled:
@@ -567,7 +603,7 @@ class MainController(QObject):
                 raise ValueError("波形数据维度无效，无法加载。")
 
             # 加载历史波形时暂停实时采集，避免下一帧立即覆盖。
-            wasRunning = self.acquisitionTimer.isActive()
+            wasRunning = self._isAcquisitionRunning()
             if wasRunning:
                 self.stopAcquisition()
 
@@ -784,6 +820,42 @@ class MainController(QObject):
                 isWarning=True,
             )
 
+    def _isAcquisitionRunning(self) -> bool:
+        """Return whether timer or worker acquisition is active."""
+        return self.acquisitionTimer.isActive() or bool(
+            self.acquisitionThread and self.acquisitionThread.isRunning()
+        )
+
+    def _acquire_frame_dict(self) -> dict[str, Any] | None:
+        """Read one frame through the configured acquisition source."""
+        try:
+            self.acquisitionSource.start()
+            frame = self.acquisitionSource.read_frame(timeout_ms=1000)
+        except Exception as error:
+            logger.error("单帧采集失败：%s", error, exc_info=True)
+            self.view.showStatusMessage(f"单帧采集失败：{error}", isWarning=True)
+            return None
+        finally:
+            self.acquisitionSource.stop()
+        if frame is None:
+            return None
+        return frame.to_frame_dict()
+
+    def _handle_acquired_frame(self, frame: object) -> None:
+        """Process a frame emitted by the acquisition worker."""
+        try:
+            frame_data = frame.to_frame_dict()  # type: ignore[attr-defined]
+            self._process_frame(frame_data)
+        except Exception as error:
+            logger.error("处理采集帧失败：%s", error, exc_info=True)
+            self.view.showStatusMessage(f"处理采集帧失败：{error}", isWarning=True)
+
+    def _onAcquisitionError(self, message: str) -> None:
+        """Handle a source disconnect asynchronously."""
+        logger.error("采集源错误：%s", message)
+        self.view.showStatusMessage(f"采集源错误：{message}", durationMs=3500, isWarning=True)
+        QTimer.singleShot(0, self.stopAcquisition)
+
     def _refreshFrame(self) -> None:
         """
         采集并刷新一帧数据。
@@ -798,7 +870,13 @@ class MainController(QObject):
             self._renderCurrentFrame(self.lastFrameData)
             return
 
-        frameData = self.model.generateFrame()
+        frameData = self._acquire_frame_dict()
+        if frameData is None:
+            return
+        self._process_frame(frameData)
+
+    def _process_frame(self, frameData: dict[str, Any]) -> None:
+        """Apply processing, gating, persistence, and rendering to one frame."""
         frameData["baseRawSignal"] = frameData["rawSignal"].copy()
         frameData["baseEnvelopeSignal"] = frameData["envelopeSignal"].copy()
         frameData["filterBaseRawSignal"] = frameData["rawSignal"].copy()
@@ -1309,7 +1387,7 @@ class MainController(QObject):
     def loadReplaySession(self, session_id: str) -> None:
         """Load all frame indexes for a saved session."""
         try:
-            if self.acquisitionTimer.isActive():
+            if self._isAcquisitionRunning():
                 self.stopAcquisition()
             self.replaySessionId = session_id
             self.replayFrames = list(
@@ -1364,6 +1442,8 @@ class MainController(QObject):
 
     def shutdown(self) -> None:
         """Finish active persistence state when the application closes."""
+        if self._isAcquisitionRunning():
+            self.stopAcquisition()
         self._finishActiveSession()
         self.sessionRepository.close()
 
