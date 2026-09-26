@@ -5,363 +5,291 @@
 %%%%%%%%%%%%%%
 \section{操作教程}
 
-\subsection{安装与启动}
+\subsection{安装、登录与启动}
 \par
-本软件基于 Python 3.10 及以上版本开发，首次运行前需安装依赖库。推荐在命令行中执行以下步骤：
-\begin{enumerate}
-	\item 进入项目根目录；
-	\item 安装依赖：\texttt{pip install -r requirements.txt}；
-	\item 启动程序：\texttt{python main.py}。
-\end{enumerate}
+将软件目录放在具有读写权限的位置，打开命令行并进入项目根目录。首次运行时执行
+\texttt{pip install -r requirements.txt} 安装运行依赖，再执行 \texttt{python main.py} 启动程序。首次启动界面要求建立本地管理员账号，用户名和密码确认后进入主界面；后续启动使用管理员、工程师、操作员或查看者账号登录。密码使用 PBKDF2-HMAC-SHA256 加盐存储，连续输错达到设定次数后账号临时锁定。
+\par
+软件将运行数据保存在 \texttt{data} 目录。检测会话、用户、缺陷、报告和审计元数据写入 \texttt{ut\_analyst.db}，完整波形按会话写入 \texttt{data/sessions} 下的 NPZ 分块文件。移动软件或升级版本前，应整体备份 \texttt{data} 目录。
+
 % 插入图：系统启动界面
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.8\textwidth]{image/xitong.png}
-	\caption{系统启动后界面（显示状态栏、当前时间与探头连接状态）}
+	\caption{系统启动后的状态栏与连接信息}
 	\label{fig:system_startup}
 \end{figure}
-\par
-软件启动后，状态栏显示系统状态、当前时间与探头连接状态（仿真模式）。
-
-
 
 \subsection{主界面组成与布局}
 \par
-软件主界面由菜单栏、工具栏、波形显示区、右侧控制面板、底部频谱分析面板、左侧缺陷统计面板与底部缺陷表格构成，如图2所示。菜单栏包含"文件"、"设置"、"视图"和"帮助"；工具栏提供"打开"、"保存"、"开始检测"、"停止检测"、"冻结"、"单次采样"和"生成报告"；波形显示区展示 A-Scan 曲线，采用黑色背景与绿色网格，支持右键菜单与拖拽交互；右侧控制面板集成检测参数设置、采集控制、闸门设置、定量结果、游标读数和校准入口，当窗口高度不足时会自动出现滚动条；底部缺陷表格用于实时显示当前闸门内的峰值读数，并记录历史缺陷信息。
-说明：缺陷表格第1行为"实时行"，用于展示当前闸门内峰值读数，不参与删除；历史记录需在"开始记录"后才会写入。
-
+主界面由菜单栏、工具栏、A-Scan 波形区、右侧控制面板、缺陷表格和若干可停靠分析面板组成。菜单栏提供文件、设置、视图和帮助入口；工具栏集中放置打开、保存、开始检测、停止检测、冻结、单次采样和生成报告。波形区显示原始信号、包络、参考波形和峰值保持轨迹，闸门线、门限线和 A/B 游标可直接拖动。右侧控制面板用于输入检测参数、查看定量结果和执行校准；底部缺陷表格第一行为实时行，其余行为已保存的缺陷记录。
 \par
-新增功能面板（可通过"视图"菜单或快捷键显示/隐藏）：
-\begin{enumerate}
-	\item 频谱分析面板（F5）：位于界面底部，提供 FFT 频谱分析、数字滤波器功能，详见第2.10节；
-	\item 缺陷统计面板（F6）：位于界面左侧，提供缺陷统计分析、DAC 曲线显示功能，详见第2.11节。
-\end{enumerate}
+“视图”菜单可显示或隐藏频谱分析、缺陷统计、数据回放、多闸门与 TCG、B/C-Scan 等面板。各面板的位置和窗口大小在关闭时自动保存，下次启动恢复。主界面布局如图~\ref{fig:ui_main} 所示，频谱与统计面板分别见图~\ref{fig:fft_panel} 和图~\ref{fig:statistics_panel}。
 
-% 插入图：主界面整体截图
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.95\linewidth]{image/ui_main.png}
-	\caption{主界面整体（含新增频谱分析面板与缺陷统计面板入口）}
+	\caption{主界面整体布局}
 	\label{fig:ui_main}
 \end{figure}
 
-% 插入图：频谱分析面板截图
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.95\linewidth]{image/fft_panel.png}
-	\caption{频谱分析面板（FFT 频谱图、窗函数选择、数字滤波器）}
+	\caption{频谱分析面板}
 	\label{fig:fft_panel}
 \end{figure}
 
-% 插入图：缺陷统计面板截图
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.95\linewidth]{image/statistics_panel.png}
-	\caption{缺陷统计面板（统计数据、深度/波幅分布图、DAC 曲线）}
+	\caption{缺陷统计与 DAC 曲线面板}
 	\label{fig:statistics_panel}
 \end{figure}
 \FloatBarrier
 
+\subsection{检测前的现场准备}
+\par
+检测前先确认工件表面无松散氧化皮、明显油污、飞溅和影响探头移动的凸起。对于焊缝检测，应根据焊缝余高和表面状态修整扫查区域；对于锻件、板材和管材，应标记扫查方向、起止位置和参考方向。表面粗糙时选择黏度较高的耦合剂，光滑表面可使用机油、甘油或专用耦合剂。耦合层应连续均匀，但不能形成明显厚度变化，否则会造成回波幅值波动。
+\par
+探头选择应结合工件厚度、缺陷取向和验收标准。薄壁或近表面检测通常使用较高频率和小晶片探头，厚壁或粗晶材料通常使用较低频率和较大晶片探头。斜探头检测焊缝时，还要根据板厚、焊缝坡口和声束覆盖范围选择折射角，并使用与探头匹配的试块制作 DAC 或 TCG。每次更换探头、楔块、线缆或主要增益设置后，均应重新检查零点、声速和灵敏度。
 
+\subsection{典型检测作业流程}
+\par
+一个完整的检测作业通常从工艺确认开始。操作人员先阅读检测工艺卡，确认检测标准、验收等级、扫查范围、探头参数和记录要求；随后在工件上划分扫查区域并施加耦合剂，使用标准试块或已知厚度区域完成零点与声速校准。校准完成后，将探头稳定放置在参考位置，调整增益和声程，使始波、底波或参考反射处于便于观察的幅值范围。
+\par
+正式扫查时，探头沿工艺规定的方向匀速移动，保持压力和耦合状态稳定。发现回波超过门限后，先停止移动并观察 A-Scan 波形，再利用 Gate A/B/C 和游标确认峰值位置。需要在同一位置复核时，使用冻结和单次采样保留当前帧；需要比较不同位置或不同探头时，捕获参考波形并与当前波形进行对比。确认缺陷后开启记录，将深度、波幅、时间和波形截图写入缺陷表。完成扫查后停止记录和采集，回放会话检查遗漏或异常记录，最后填写工件、标准、人员和备注信息并导出报告。
 
 \subsection{检测参数设置}
 \par
-常用检测参数位于右侧控制面板，建议按以下顺序配置：
-\begin{enumerate}
-	\item 增益（Gain）：范围 0$\sim$110 dB，用于调节整体波幅；
-	\item 声程范围（Range）：0$\sim$500 mm，用于设置显示/检测的最大范围；
-	\item 探头频率（Frequency）：仿真信号中心频率（默认 2.5 MHz）；
-	\item 刷新间隔（Refresh）：采集刷新周期，数值越大，波形更新越慢，便于观察；
-	\item 声速（Velocity）：可选择钢（5900 m/s）、铝（6300 m/s）或自定义，用于深度换算。
-\end{enumerate}
-\par
-参数修改后，点击"应用参数"使其生效。
+参数修改后点击“应用参数”使其生效。增益用于补偿材料衰减、耦合损失和探头灵敏度差异，调整时应保证参考回波具有足够信噪比，同时避免始波、底波或缺陷波出现削顶。声程决定横轴显示的最大往返声程，设置过小会截断深部回波，设置过大则降低有效显示分辨率。探头频率与试块、材料和缺陷尺寸匹配；刷新间隔用于控制界面更新速度，扫查速度较快时使用较小间隔，精读波形时使用较大间隔或冻结。常用参数范围见表~\ref{tab:detection_parameters}。
 
-\subsection{采集控制（开始/停止/冻结/单次）}
-\par
-采集控制用于管理波形刷新与显示行为：
-\begin{enumerate}
-	\item 开始检测：启动定时采集并刷新波形；
-	\item 停止检测：停止采集刷新；
-	\item 冻结：暂停显示更新，用于精读当前波形（不改变参数配置）；
-	\item 单次采样：在冻结或停止状态下获取一帧波形并显示；
-	\item 触发模式：
-	\begin{enumerate}
-		\item 自动：按刷新周期持续更新；
-		\item 闸门触发：仅当闸门触发条件满足时更新（模拟触发采样）。
-	\end{enumerate}
-	\item 峰值保持：对波形峰值进行保持显示，便于观察上包络变化；
-	\item 参考波形：可捕获一条参考曲线用于对比，必要时可清除。
-\end{enumerate}
-\par
-若用户发现波形"无变化"，请优先检查是否处于冻结状态，或触发模式设置为"闸门触发"但当前未触发。
+\begin{table}[htbp]
+	\centering
+	\caption{常用检测参数}
+	\label{tab:detection_parameters}
+	\begin{tabular}{p{0.18\textwidth}p{0.20\textwidth}p{0.54\textwidth}}
+		\toprule
+		\textbf{参数} & \textbf{常用范围} & \textbf{设置说明} \\
+		\midrule
+		增益 & 0$\sim$110 dB & 根据参考回波和噪声水平调节，避免信号饱和。 \\
+		声程 & 0$\sim$500 mm & 覆盖始波、目标深度和底波，保留必要余量。 \\
+		探头频率 & 0.2$\sim$20 MHz & 高频分辨率高、穿透浅；低频穿透深、分辨率低。 \\
+		刷新间隔 & 30$\sim$2000 ms & 数值越小刷新越快，数值越大越便于读数。 \\
+		声速 & 500$\sim$9000 m/s & 按材料选择钢材、铝材或输入实测声速。 \\
+		零点延迟 & $-200\sim2000$ $\mu$s & 修正探头、楔块和电路引入的固定时间偏移。 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
 
-\subsection{闸门（Gate A）设置与使用}
+\subsection{声速、零点与深度计算}
 \par
-闸门用于在指定窗口内进行峰值检测与报警/记录。本软件采用常见的 Start/Width/Level 三参数线性闸门：
-\begin{enumerate}
-	\item Start：闸门起点（对应波形时间或深度轴上的起始位置）；
-	\item Width：闸门宽度（闸门终点 = Start + Width）；
-	\item Level：门限高度（以屏高比例表示，用于触发判定）。
-\end{enumerate}
+声速校准使用已知厚度试块。声波完成一次往返传播，因此声速由厚度和往返时间计算：
+\begin{equation}
+	v=\frac{2h}{t-t_0},
+\end{equation}
+其中 $h$ 为试块厚度，$t$ 为实测往返时间，$t_0$ 为系统零点延迟。实际测量时先将零点延迟置零，读取厚度 $h$ 对应的回波时间；若试块厚度为 25 mm、实测往返时间为 8.47 $\mu$s，则声速约为 5903 m/s。校准完成后，用同一试块再次测量，如果深度读数偏离已知厚度，则重新检查回波选择和耦合状态。
 \par
-一条\textbf{可拖拽横线}表示门限。用户可在右侧输入框中精确输入 Start/Width/Level，也可直接在图上拖拽调整，二者会自动联动。
+零点延迟由已知厚度和已确认声速计算：
+\begin{equation}
+	t_0=t-\frac{2h}{v}.
+\end{equation}
+校准后任意回波深度按式~\eqref{eq:depth_measurement} 计算：
+\begin{equation}
+	d=\frac{v(t-t_0)}{2}.
+	\label{eq:depth_measurement}
+\end{equation}
+当检测浅表缺陷时，零点延迟对深度结果影响显著；当检测深部缺陷时，应优先确认声速和底波位置。校准参数可通过“设置”菜单保存为 JSON，下一次检测时直接加载。
+
+\subsection{采集控制与波形观察}
 \par
-闸门检测逻辑为：在闸门窗口内搜索最大波峰值（Peak），当 Peak 超过门限时，波形图会用红色圆点标记峰值位置，并在右侧更新定量结果（深度、水平距离、dB 差值等）。界面效果如图3所示。
+点击“开始检测”后，程序在后台采集线程中持续读取帧数据，主界面只负责显示、判定和保存，避免长时间采集阻塞窗口操作。点击“停止检测”结束当前会话并写入数据库；冻结用于暂时停止显示更新，便于观察某一帧；单次采样用于在停止或冻结状态下主动获取一帧。自动触发模式按刷新周期连续更新，门触发模式只在闸门峰值达到门限时更新显示。
+\par
+峰值保持曲线保存各采样位置的包络上界，适合观察扫查过程中回波幅值的变化。参考波形用于比较校准前后、不同位置或不同探头的结果。捕获参考后，当前波形与参考包络叠放显示；通过“提取信号特征”可查看均值、标准差、RMS、峰峰值、过零率、能量和峰值位置，通过“与参考波形对比”可计算均值差、最大差、RMS 差和相关系数。
+
+\subsection{Gate A/B/C 与缺陷判定}
+\par
+闸门用于在指定深度窗口内寻找最高回波。闸门起点为 $G_{\mathrm{start}}$，宽度为 $W$，终点为
+\begin{equation}
+	G_{\mathrm{end}}=G_{\mathrm{start}}+W.
+\end{equation}
+当闸门内最大包络 $A_{\max}$ 满足
+\begin{equation}
+	A_{\max}\geq L
+\end{equation}
+时，判定该闸门触发，其中 $L$ 为门限。Gate A 用于主检测窗口，Gate B 和 Gate C 可设置在第二、第三层深范围内，分别记录不同区域的回波。每个闸门可独立启用、设置起点、宽度、门限和颜色，面板同步显示峰值幅值与触发状态。
+\par
+现场设置时，先依据工艺卡将 Gate A 起点放在始波之后、终点放在底波之前；对于多层结构，再用 Gate B 和 Gate C 划分第二层和第三层界面。门限一般设置在噪声上沿之上、参考回波之下。边移动探头边观察闸门状态，当触发状态稳定且峰值重复出现时，再开启缺陷记录。
 
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.95\linewidth]{image/gate_lines.png}
-	\caption{阀门线（Start/End/Level）}
+	\caption{Gate A 的起点、终点和门限}
+	\label{fig:gate_lines}
 \end{figure}
 
-\subsection{游标 A/B 测量}
+\subsection{A/B 游标测量}
 \par
-游标用于读取波形指定位置的时间/深度与幅度。本软件提供两条可拖拽竖线游标 A、B：
-\begin{enumerate}
-	\item 在波形图中拖动游标 A/B 可改变位置；
-	\item 右侧面板实时显示 A、B 的读数及差值 $\Delta$；
-	\item 可在"视图"菜单或右侧开关中控制"显示游标标签"；
-	\item 游标标签固定显示在图形高度约 90\% 处，避免遮挡波形细节。
-\end{enumerate}
-
-\par
-如图\ref{fig:cursor_ab}所示，游标 A 和 B 分别以蓝色和橙色竖线标记在波形图上，右侧控制面板同步显示其位置及差值信息。
+游标 A 和 B 用于读取指定位置的往返时间和深度，并计算两者差值。游标时间差与深度差分别为
+\begin{equation}
+	\Delta t=t_B-t_A,\qquad
+	\Delta d=\frac{v\Delta t}{2}.
+\end{equation}
+测量缺陷长度或相邻界面间距时，先将游标 A 放在第一个回波峰值，再将游标 B 放在第二个回波峰值，右侧面板会同步显示两游标读数、$\Delta t$ 和 $\Delta d$。切换显示单位只改变界面读数，不改变底层采样数据。游标标签可固定在绘图区上方，避免覆盖回波细节。
 
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.95\linewidth]{image/cursor_ab.png}
-	\caption{游标 A/B 与读数区域}
+	\caption{A/B 游标与差值读数}
 	\label{fig:cursor_ab}
 \end{figure}
 \FloatBarrier
 
 \subsection{缺陷记录与表格管理}
 \par
-缺陷记录用于形成可追溯数据，避免"误触发即入表"的不合理行为。本软件采用"手动开始记录"的方式：
-\begin{enumerate}
-	\item 点击"开始记录"后，闸门触发事件会写入历史记录；
-	\item 未开始记录时，仅更新表格实时行，不写入历史；
-	\item 右键缺陷表格可执行：删除选中、清空历史、重编号等操作；
-	\item 实时行不可删除，历史行支持键盘 Delete 删除。
-\end{enumerate}
+缺陷记录采用手动开启方式。点击“开始记录”后，闸门触发事件按编号、深度、波幅和检测时间写入历史表格，同时保存当前波形截图。未开始记录时，表格实时行仍显示当前峰值，但不会写入历史。表格右键菜单提供删除选中记录、清空历史和重编号操作；实时行不参与删除，历史行可使用 Delete 键删除。删除和清空操作会写入审计日志。
 
-% 插入图4：缺陷表格与右键菜单
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.95\textwidth]{image/defect.png}
-	\caption{缺陷记录表格及右键上下文菜单}
+	\caption{缺陷记录表格及右键菜单}
 	\label{fig:defect_table_menu}
 \end{figure}
 
-\subsection{数据保存与导出}
+\subsection{数据保存、会话与回放}
 \par
-点击"保存"可将当前波形数据与参数导出为 JSON 或 CSV 文件：
-\begin{enumerate}
-	\item JSON：包含参数信息与完整数组（时间序列、原始波形、包络/保持等）；
-	\item CSV：以表格形式保存时间与幅度数据，便于在第三方软件中分析。
-\end{enumerate}
+“保存”将当前帧参数和时间、原始信号、包络数组导出为 JSON 或 CSV。JSON 适合完整重建，CSV 适合使用电子表格或第三方软件分析。“打开”可重新载入单帧波形和参数。实时检测启动后，程序自动建立检测会话，将每一帧的原始波形和处理元数据写入分块文件；会话元数据包括开始与结束时间、工件名称、检测标准、参数、判定结论和缺陷索引。
 \par
-点击"打开"可选择历史数据文件并进行提示（波形回放/复现属于后续可扩展能力）。
+打开“数据回放”面板后，先刷新会话列表，再选择需要复盘的会话。回放控制支持逐帧前后移动、拖动帧滑块、0.5$\sim$4 倍速播放和首尾循环。检测过程中已保存的原始波形不受滤波和 TCG 显示状态影响，因此回放时可重新应用不同处理参数。若会话文件损坏或分块缺失，程序给出明确错误并保留其余可读取数据。
 
-\subsection{报告生成与判定规则}
+\subsection{FFT 频谱分析}
 \par
-点击"生成报告"将弹出报告预览窗口，并可保存为 HTML 文件。报告预览窗口如图6所示，报告内容包含：
+FFT 将时域波形转换为频率谱，用于检查探头主频、频带宽度和噪声分布。对长度为 $N$ 的信号 $x[n]$ 加窗 $w[n]$ 后，离散频谱为
+\begin{equation}
+	X[k]=\sum_{n=0}^{N-1}x[n]w[n]e^{-j2\pi kn/N}.
+\end{equation}
+对应频率为
+\begin{equation}
+	f_k=k\frac{f_s}{N},
+\end{equation}
+其中 $f_s$ 为采样率。频率分辨率由 $f_s/N$ 决定，增大 FFT 点数可提高分辨率，但不能增加原始信号中不存在的信息。
+\par
+面板提供矩形窗、汉宁窗、汉明窗和布莱克曼窗。矩形窗主瓣窄但旁瓣高；汉宁窗和汉明窗适合一般脉冲信号；布莱克曼窗旁瓣更低，但主瓣更宽。调整 FFT 点数和窗函数后点击“计算 FFT”，面板显示峰值频率、峰值幅值和频率范围。比较滤波前后频谱时，应保持 FFT 点数和窗函数一致。
 
-% 插入图5：报告预览窗口
+\subsection{数字滤波与信号平均}
+\par
+滤波器对当前基础波形进行分析，不会重复叠加已经处理的信号。带通滤波器保留指定频带，低通滤波器移除高于截止频率的噪声，高通滤波器移除低频振铃和基线漂移。SciPy Butterworth SOS 实现采用零相位滤波，截止频率必须满足
+\begin{equation}
+	0<f_{\mathrm{low}}<f_{\mathrm{high}}<f_s/2.
+\end{equation}
+点击“复位滤波”可恢复当前帧未经滤波的基础波形，原始数据仍保留在会话中。
+\par
+信号平均对连续多帧同位置波形求均值。设第 $i$ 帧信号为 $x_i[n]$，平均帧数为 $M$，平均结果为
+\begin{equation}
+	\bar{x}[n]=\frac{1}{M}\sum_{i=1}^{M}x_i[n].
+\end{equation}
+随机噪声标准差约降为原来的 $1/\sqrt{M}$，但平均帧数过大时，扫查位置变化或耦合波动会造成波形模糊。细扫稳定区域可使用 8$\sim$16 帧，快速移动或定位缺陷时使用 2$\sim$4 帧。
+
+\subsection{缺陷统计与 DAC}
+\par
+统计面板对已记录缺陷的深度和幅值进行汇总。平均深度与平均波幅分别为
+\begin{equation}
+	\bar{d}=\frac{1}{n}\sum_{i=1}^{n}d_i,\qquad
+	\bar{A}=\frac{1}{n}\sum_{i=1}^{n}A_i.
+\end{equation}
+深度按 10 mm 区间分组，波幅按 10\% 区间分组，柱状图用于判断缺陷集中区域。点击“刷新统计”重新计算；清空缺陷后，旧柱图和 DAC 点位同步清除。
+\par
+DAC 曲线描述参考回波幅值随深度的变化，软件采用扩散和材料衰减组合模型：
+\begin{equation}
+	A(d)=A_{\mathrm{ref}}
+	\left(\frac{d_{\mathrm{ref}}}{\max(d,1)}\right)
+	10^{-\alpha(d-d_{\mathrm{ref}})/20},
+\end{equation}
+其中 $A_{\mathrm{ref}}$ 为参考深度 $d_{\mathrm{ref}}$ 处的幅值，$\alpha$ 为材料衰减系数。缺陷幅值高于同深度 DAC 值时判定为超限，并计算分贝差：
+\begin{equation}
+	\Delta A_{\mathrm{DAC}}=20\lg\frac{A(d)}{A_{\mathrm{DAC}}(d)}.
+\end{equation}
+
+\subsection{TCG 时间增益补偿}
+\par
+TCG 用于补偿声程增加带来的幅值下降，使不同深度的相同尺寸反射具有可比幅值。设第 $i$ 个校准点为 $(d_i,G_i)$，任意深度 $d$ 的增益采用线性插值：
+\begin{equation}
+	G(d)=G_i+\frac{d-d_i}{d_{i+1}-d_i}(G_{i+1}-G_i),
+	\qquad d_i\leq d\leq d_{i+1}.
+\end{equation}
+补偿后的信号为
+\begin{equation}
+	x_{\mathrm{TCG}}(t)=x(t)10^{G(d(t))/20}.
+\end{equation}
+在“多闸门与 TCG”面板中输入深度和增益点，勾选“启用TCG”并点击“应用TCG”。原始波形、TCG 补偿波形和滤波基础数据分别保存，关闭 TCG 后可立即恢复原始视图。制作 TCG 时应使用相同探头、相同耦合条件和规定反射体，校准点应覆盖实际检测深度范围。
+
+\subsection{B-Scan 与 C-Scan}
+\par
+B-Scan 将每一帧包络按扫描位置顺序排列，形成时间-位置二维图，用于观察界面、底波和缺陷回波随位置的变化。C-Scan 将扫描轨迹映射到平面坐标。设第 $i$ 行、第 $j$ 列的扫描步距分别为 $\Delta y$ 和 $\Delta x$，则
+\begin{equation}
+	x=j\Delta x,\qquad y=i\Delta y.
+\end{equation}
+程序将每个位置的闸门峰值写入对应网格，构建 C-Scan 幅值分布。实际操作时，先在工件上画出行列标记，沿同一方向逐线扫查，保持探头取向和移动速度一致；完成后在 C-Scan 中观察高幅值区域，再回到对应坐标复核 A-Scan 波形。
+
+\subsection{报告生成与判定}
+\par
+点击“生成报告”后填写检测标准、工件名称、公司、项目、操作人员、审核人员、检测地点和备注。软件自动嵌入检测时间、探头频率、采样率、增益、声速、扫查深度、波形总览和缺陷截图。报告可保存为 HTML 或 PDF，两者使用同一模板，并显示报告内容哈希和当前登录用户的签名信息。
+\par
+报告结论按以下规则形成：当存在已记录缺陷或当前帧闸门触发时，结论为“不合格”；未记录缺陷且当前帧未触发时，结论为“合格”。现场签字前应核对工件编号、标准、人员、参数、缺陷数量和截图是否完整。报告导出后，文件 SHA-256、格式、路径和签署用户写入数据库。
+
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.90\textwidth]{image/report_preview.png}
 	\caption{报告预览窗口}
 	\label{fig:report_preview}
 \end{figure}
-\begin{enumerate}
-	\item 检测时间、工件名称（当前默认"工件-001"）与基础参数；
-	\item 参考标准与验收等级（支持通用、NB/T 47013、GB/T 11345、ASME 等标准模板）；
-	\item 检测人员信息（操作人员、审核人员、公司名称、检测地点等，可选填）；
-	\item 检测参数自动嵌入（采样率、探头频率、增益、声速、扫查深度等）；
-	\item 当前波形总览截图；
-	\item 每条缺陷记录对应的波形截图（用于追溯）。
-\end{enumerate}
 
-% 插入图6：完整报告
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.90\textwidth]{image/report.png}
-	\caption{完整报告}
+	\caption{完整检测报告}
 	\label{fig:complete_report}
 \end{figure}
-\par
-判定规则：当存在缺陷记录，或当前帧闸门触发时，判定为"不合格"；否则判定为"合格"。此规则保证报告结论与记录数据一致，避免"有缺陷但合格"的逻辑矛盾。
 \FloatBarrier
 
-\subsection{校准功能（声速与零点）}
+\subsection{用户权限与审计}
 \par
-为提升读数准确性，软件提供两类校准：
-\begin{enumerate}
-	\item 声速校准：根据已知厚度与实测往返时间推算声速；
-	\item 零点校准：对系统零点延迟进行补偿，改善浅表读数。
-\end{enumerate}
-% 插入图7：校准功能界面截图
-\begin{figure}[htbp]
-	\centering
-	\includegraphics[width=0.95\textwidth]{image/calibration_menu.png}
-	\caption{校准功能界面（包含声速校准、零点校准等选项）}
-	\label{fig:calibration_menu}
-\end{figure}
+管理员负责创建用户、分配角色和维护系统设置；工程师可配置检测流程、校准、分析和报告；操作员可执行检测、记录和报告输出；查看者只能浏览已保存数据。登录成功后，当前用户身份随会话保存。检测开始与结束、缺陷写入或删除、报告导出与签名等操作均写入审计事件。
 \par
-校准功能界面如图8所示，校准参数支持保存/加载（JSON），便于不同材料/工件快速切换。
-\FloatBarrier
+审计事件包含时间、用户、动作、实体类型、实体标识、详细信息、前序哈希和当前事件哈希。任意历史事件被修改后，重新计算的哈希与后续链条不一致，审计查看器显示验证失败。报告签名记录用户、时间、报告路径和 SHA-256，可用于确认报告文件未被替换。
 
-\subsection{鼠标右键菜单（波形区）}
-% 插入图8：波形区右键菜单界面截图
-\begin{figure}[htbp]
-	\centering
-	\includegraphics[width=0.95\textwidth]{image/context_menu_waveform.png}
-	\caption{波形区右键菜单界面（包含自动缩放、闸门复位、清除峰值标记等功能）}
-	\label{fig:context_menu_waveform}
-\end{figure}
+\subsection{快捷键}
 \par
-在波形图区域点击鼠标右键，可打开中文快捷菜单（例如：自动缩放、闸门复位、清除峰值标记、显示网格开关等），用于提升操作效率，菜单界面如图9所示：
-\FloatBarrier
-
-\subsection{频谱分析功能（新增）}
-\par
-频谱分析功能用于在频率域观察超声信号特性，帮助用户识别信号中的主要频率成分和噪声分布。该功能通过界面底部的"频谱分析面板"实现（按 F5 键或通过"视图"菜单显示/隐藏）。
-
-\subsubsection{FFT 频谱分析}
-\par
-在频谱分析面板中，点击"计算 FFT"按钮即可对当前 A-Scan 波形执行快速傅里叶变换，并在面板中显示频谱图。可调参数包括：
-\begin{enumerate}
-	\item FFT 点数：256$\sim$8192，数值越大频率分辨率越高，但计算量增大；
-	\item 窗函数：矩形窗、汉宁窗、汉明窗、布莱克曼窗，不同窗函数对频谱泄漏的抑制效果不同。
-\end{enumerate}
-\par
-频谱图自动标注峰值频率（单位 MHz）和峰值幅值（单位 dB），便于用户快速定位信号主频。
-
-\subsubsection{数字滤波器}
-\par
-频谱分析面板提供三种数字滤波器，用于对当前波形进行频率选择性滤波：
-\begin{enumerate}
-	\item 带通滤波器：仅保留指定频率范围内的信号成分；
-	\item 低通滤波器：滤除高频噪声，保留低频信号；
-	\item 高通滤波器：滤除低频干扰（如始波附近的低频振铃），保留高频缺陷回波。
-\end{enumerate}
-\par
-参数说明：
-\begin{enumerate}
-	\item 低频截止 / 高频截止：单位 MHz，可精确设定滤波频率边界；
-	\item 滤波器阶数：1$\sim$10，阶数越高过渡带越窄，但可能引入更多振铃。
-\end{enumerate}
-\par
-点击"应用滤波器"后，滤波结果会实时更新到 A-Scan 波形图上。
-
-% 插入图：频谱分析面板截图
-\begin{figure}[htbp]
-	\centering
-	\includegraphics[width=0.95\linewidth]{image/fft_panel.png}
-	\caption{频谱分析面板（FFT 频谱图、数字滤波器控制）}
-	\label{fig:fft_panel_detail}
-\end{figure}
-\FloatBarrier
-
-\subsection{缺陷统计分析功能（新增）}
-\par
-缺陷统计分析功能用于对已记录的缺陷进行统计汇总和可视化展示，帮助用户评估缺陷分布规律。该功能通过界面左侧的"缺陷统计面板"实现（按 F6 键或通过"视图"菜单显示/隐藏）。
-
-\subsubsection{统计数据}
-\par
-面板顶部显示缺陷统计摘要：
-\begin{enumerate}
-	\item 缺陷总数：已记录的缺陷数量；
-	\item 深度范围：缺陷深度的最小值与最大值（单位 mm）；
-	\item 平度深度：所有缺陷深度的算术平均值；
-	\item 平均波幅：所有缺陷波幅的算术平均值（以屏高百分比表示）。
-\end{enumerate}
-
-\subsubsection{分布图}
-\par
-面板中部以柱状图形式展示缺陷的深度分布和波幅分布：
-\begin{enumerate}
-	\item 深度分布：按 10 mm 区间统计缺陷数量，便于判断缺陷集中区域；
-	\item 波幅分布：按 10\% 区间统计缺陷数量，便于评估缺陷严重程度。
-\end{enumerate}
-
-\subsubsection{DAC 曲线}
-\par
-面板底部显示距离-波幅校正曲线（DAC 曲线），用于缺陷定量评估：
-\begin{enumerate}
-	\item DAC 曲线基于超声衰减原理自动生成，波幅随深度增加而减小；
-	\item 已记录的缺陷以红色圆点标注在图上，便于与 DAC 曲线对比；
-	\item 可快速判断缺陷是否超过验收标准对应的 DAC 门限。
-\end{enumerate}
-\par
-点击"刷新统计"按钮可更新统计数据和图表。
-
-% 插入图：缺陷统计面板截图
-\begin{figure}[htbp]
-	\centering
-	\includegraphics[width=0.95\linewidth]{image/statistics_panel.png}
-	\caption{缺陷统计面板（统计数据、深度/波幅分布图、DAC 曲线）}
-	\label{fig:statistics_panel_detail}
-\end{figure}
-\FloatBarrier
-
-\subsection{快捷键系统（新增）}
-\par
-为提高操作效率，本软件提供完整的快捷键支持。用户可通过"帮助"菜单中的"快捷键帮助"（或按 F1）查看所有快捷键一览表。常用快捷键如下：
+快捷键用于减少频繁切换菜单的操作，主要绑定见表~\ref{tab:shortcuts}。输入框获得焦点时，键盘字符优先输入文本；完成输入后点击波形区，再使用快捷键。
 
 \begin{table}[htbp]
 	\centering
-	\caption{常用快捷键一览}
+	\caption{常用快捷键}
 	\label{tab:shortcuts}
-	\begin{tabular}{|l|l|}
-		\hline
+	\begin{tabular}{p{0.22\textwidth}p{0.60\textwidth}}
+		\toprule
 		\textbf{快捷键} & \textbf{功能} \\
-		\hline
+		\midrule
 		F1 & 显示快捷键帮助 \\
-		\hline
 		F2 & 停止检测 \\
-		\hline
-		F3 & 冻结/解冻波形 \\
-		\hline
+		F3 & 冻结或解冻波形 \\
 		F4 & 单次采样 \\
-		\hline
-		F5 & 显示/隐藏频谱分析面板 \\
-		\hline
-		F6 & 显示/隐藏缺陷统计面板 \\
-		\hline
+		F5 & 显示或隐藏频谱分析面板 \\
+		F6 & 显示或隐藏缺陷统计面板 \\
+		Ctrl+Enter & 开始检测 \\
 		Ctrl+O & 打开数据文件 \\
-		\hline
 		Ctrl+S & 保存波形数据 \\
-		\hline
 		Ctrl+R & 生成检测报告 \\
-		\hline
 		Ctrl+A & 自动缩放波形 \\
-		\hline
 		Ctrl+G & 捕获参考波形 \\
-		\hline
-		Ctrl+L & 显示/隐藏游标标签 \\
-		\hline
+		Ctrl+L & 显示或隐藏游标标签 \\
 		Delete & 删除选中的缺陷记录 \\
-		\hline
+		\bottomrule
 	\end{tabular}
 \end{table}
 
+\subsection{常见问题处理}
 \par
-此外，软件支持界面布局记忆功能：窗口位置、大小和面板停靠状态会在关闭时自动保存，下次启动时自动恢复，无需每次重新调整。
-
-\subsection{常见问题}
+波形不更新时，先确认已经点击“开始检测”，再检查冻结状态和触发模式。刷新过快导致读数不稳时，增大刷新间隔或使用“冻结+单次采样”。表格无法删除时，确认选中的是历史行而不是实时行。频谱图无数据时，先执行单次采样再点击“计算 FFT”。滤波器效果不明显时，重新核对截止频率与采样率关系，或切换滤波类型。缺陷统计无数据时，先开启记录并使闸门触发，再刷新统计。界面布局异常时关闭程序，删除 \texttt{config/layout.json} 后重新启动。
 \par
-以下为常见问题与处理建议：
-\begin{enumerate}
-	\item 波形不更新：检查是否点击"开始检测"、是否处于"冻结"、触发模式是否为"闸门触发"且未触发；
-	\item 刷新过快看不清：增大"刷新间隔"，或使用"冻结+单次采样"组合；
-	\item 表格无法删除：实时行不可删，请选中历史行再删除或使用"清空历史"；
-	\item 报告无法打开：本软件导出为 HTML 文本文件，可直接用浏览器打开（避免二进制不可读问题）；
-	\item FFT 频谱图无显示：请先点击"开始检测"或执行"单次采样"获取波形数据，再点击"计算 FFT"；
-	\item 滤波器效果不明显：尝试调整截止频率和滤波器阶数，或切换滤波器类型（带通/低通/高通）；
-	\item 缺陷统计面板无数据：请先进行缺陷记录（点击"开始记录"并触发缺陷），再点击"刷新统计"；
-	\item 快捷键不响应：确认当前焦点不在输入框内（输入框内键盘输入会被优先处理）；
-	\item 界面布局错乱：删除安装目录下的 \texttt{config/layout.json} 文件后重启软件，即可恢复默认布局。
-\end{enumerate}
+检测结果与试块标定不一致时，依次检查探头型号、楔块延迟、耦合状态、声速、零点、工件温度和时间窗口。深部回波偏低时，检查声程和 TCG 是否覆盖目标深度；浅表回波异常时，检查零点延迟和始波旁瓣。报告内容缺失时，检查工件、标准、人员和缺陷截图是否已填写，再重新生成报告。

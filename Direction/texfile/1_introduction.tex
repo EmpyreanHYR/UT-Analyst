@@ -7,83 +7,109 @@
 
 \subsection{项目背景}
 \par
-超声检测（Ultrasonic Testing, UT）是工业无损检测中应用最广泛的手段之一。A-Scan（A型显示）通过"时间-幅度"曲线直观反映回波位置与能量，用于评估材料内部缺陷、壁厚与界面反射情况。
+超声检测通过分析材料内部反射回波的传播时间、幅值和频率特征，判断工件中是否存在裂纹、夹渣、未熔合、气孔或分层等缺陷。A-Scan 以时间为横轴、回波幅值为纵轴，是超声检测中最直接、最常用的显示形式。现场检测时，操作人员需要根据工件材料和几何形状选择探头与耦合方式，结合声速、声程、增益、闸门和游标完成缺陷定位与定量，并保留检测过程、缺陷记录和结论依据。
 \par
-在实际工程现场中，检测人员通常需要结合\textbf{增益}、\textbf{声程}、\textbf{声速}、\textbf{闸门}与\textbf{游标}等功能完成定位与定量，并对可疑反射进行记录与报告输出。为了支持培训演示、算法验证与软件工程化开发，本软件提供 A-Scan 波形的仿真采集、闸门触发、缺陷记录与报告追溯能力。在此基础上，本软件进一步集成了\textbf{频谱分析}、\textbf{缺陷统计}、\textbf{标准模板报告}和\textbf{快捷键系统}等增强功能，使其更加贴合实际工程检测需求。
+“\SoftwareName（\Version）”围绕上述工作流程，将波形采集、参数配置、闸门判定、游标测量、校准、缺陷记录、数据回放、统计分析和报告输出集中在同一桌面环境中。软件采用深色工业界面与绿色网格波形显示，支持多闸门、TCG 补偿、B/C-Scan 成像、FFT 频谱分析和 SQLite 会话存储，为教学演示、工艺试验、算法验证和检测数据管理提供统一操作平台。
 
 \subsection{编写目的}
 \par
-本使用说明书主要用于指导用户完成"\SoftwareName（\Version）"软件的正确安装、启动与日常使用，并清晰界定该软件的功能边界与完整操作流程。编写本文档，一方面可将其作为软件交付与用户培训的配套资料，帮用户快速熟悉软件，降低学习与上手成本;另一方面可对参数设置、闸门检测、缺陷记录、报告导出等常用操作进行统一规范，明确各环节的操作步骤与执行要求，保障用户使用过程的规范性、准确性与高效性。
+本说明书用于说明软件的安装、登录、参数设置、校准、检测、记录、回放和报告导出方法，并将常用超声检测作业步骤与软件操作对应起来。阅读本说明书后，操作人员应能够根据工件与探头条件完成声速和零点校准，设置适合的声程与增益，使用 Gate A/B/C 和游标定位缺陷，保存可追溯的检测会话，并输出包含检测参数、波形和缺陷信息的 HTML 或 PDF 报告。
 
+\subsection{适用对象与使用范围}
+\par
+本软件面向无损检测人员、质量工程师、检测设备与算法研发人员、高校教师和科研人员。实际检测任务中，操作人员应依据工件材料、焊接工艺、验收标准和检测工艺卡确定探头频率、晶片尺寸、入射角度、耦合方式、扫查范围、扫查速度及验收等级；软件负责将这些条件转化为可执行、可复现的采集与记录流程。
+\par
+软件的适用范围如表~\ref{tab:software_scope} 所示。各功能既可以独立使用，也可以在典型检测流程中连续执行。
 
-\subsection{适用对象}
-\par
-本软件主要面向以下用户群体：
-\begin{enumerate}
-	\item 无损检测人员、质量工程师：用于流程演示与操作练习；
-	\item 检测设备与算法研发人员：用于交互原型验证与算法调试；
-	\item 软件测试与验收人员：用于功能验证与报告追溯演示；
-	\item 高校教学与科研人员：用于超声检测课程教学与信号分析研究。
-\end{enumerate}
-
-\subsection{适用范围}
-\par
-本软件当前为\textbf{仿真框架}，适用范围如下：
-\begin{enumerate}
-	\item A-Scan 波形的实时显示与交互；
-	\item 线性闸门（Start/Width/Level）检测与触发显示；
-	\item 双游标（A/B）读数与差值计算；
-	\item 缺陷记录、删除/清空管理与 HTML 报告导出；
-	\item 声速校准与零点延迟校准及文件保存/加载；
-	\item FFT 频谱分析与数字滤波（带通/低通/高通）；
-	\item 缺陷统计分析与 DAC（距离-波幅校正）曲线生成；
-	\item 多标准模板报告（通用、NB/T 47013、GB/T 11345、ASME）；
-	\item 界面布局记忆与快捷键操作；
-	\item SQLite 检测会话、波形分块和完整回放；
-	\item 多闸门、TCG 与 B/C-Scan 显示；
-	\item 本地用户、角色、审计链和报告签名。
-\end{enumerate}
-\par
-说明：本软件未接入真实采集硬件，当前波形为仿真信号。若用于工程验收，需在接入实际硬件与完成系统验证后方可使用。
+\begin{table}[htbp]
+	\centering
+	\caption{软件适用范围}
+	\label{tab:software_scope}
+	\begin{tabular}{p{0.27\textwidth}p{0.61\textwidth}}
+		\toprule
+		\textbf{功能类别} & \textbf{主要用途} \\
+		\midrule
+		波形采集与显示 & A-Scan 实时显示、冻结、单次采样、峰值保持、参考波形比较和自动缩放。 \\
+		检测参数与校准 & 增益、声程、探头频率、刷新间隔、声速、零点延迟及校准文件管理。 \\
+		闸门与测量 & Gate A/B/C 门限判定、峰值捕捉、深度与水平距离计算、A/B 游标差值测量。 \\
+		信号分析 & FFT 频谱、窗函数、带通/低通/高通滤波、信号平均、特征提取和参考波形对比。 \\
+		缺陷分析 & 缺陷深度与波幅统计、DAC 曲线、TCG 补偿和超限判定。 \\
+		扫查成像 & B-Scan 时间-位置显示、C-Scan 平面位置显示和光栅扫描坐标管理。 \\
+		数据与报告 & SQLite 会话保存、波形分块、逐帧回放、JSON/CSV 导出、HTML/PDF 报告。 \\
+		权限与追溯 & 本地用户登录、四类角色、操作审计、报告签名和文件哈希。 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
 
 \subsection{软件特点}
 \par
-软件具备以下特点：
-\begin{enumerate}
-	\item 采用 MVC 架构，界面与逻辑分离，便于维护与扩展；
-	\item 使用 PyQtGraph 实现高性能绘图，支持实时刷新与交互拖拽；
-	\item 闸门与游标遵循现场常见 UT 操作习惯，读数直观；
-	\item 缺陷记录可追溯，每条记录可关联波形截图并写入报告；
-	\item 支持校准参数持久化，便于不同工件/材料快速切换；
-	\item 集成 FFT 频谱分析与数字滤波器，支持频率域信号分析；
-	\item 提供缺陷统计分析与 DAC 曲线生成，辅助缺陷定量评估；
-	\item 支持多标准报告模板，满足不同行业检测标准要求；
-	\item 完整的快捷键系统（F1$\sim$F6 及 Ctrl 组合键），提升操作效率；
-	\item 界面布局自动记忆，关闭时保存窗口位置和面板状态，下次启动自动恢复。
-\end{enumerate}
+软件采用 MVC 架构，模型层负责参数、信号仿真、闸门、TCG、统计和持久化，视图层负责波形与面板显示，控制器负责连接用户操作和业务逻辑。该结构使波形算法、界面控件和数据存储可以分别维护，便于后续接入不同采集设备或扩展检测标准。
+\par
+波形区域使用 PyQtGraph 绘制原始信号、包络、参考波形和峰值保持曲线，闸门线、门限线和游标均可直接拖动。界面在窗口大小变化时保持坐标范围稳定，检测表格、频谱面板、统计面板、回放面板和扫描成像面板可从“视图”菜单按需显示。
+\par
+检测会话以 SQLite 保存参数、缺陷、报告和波形分块索引，原始波形按会话写入压缩 NPZ 文件。报告采用同一 HTML 内容输出为网页或 PDF，并记录报告文件 SHA-256。审计事件使用前序哈希链连接，用户、角色、操作时间和报告签名均可追溯。
 
 \subsection{运行环境}
 \par
-推荐运行环境如下：
-\begin{enumerate}
-	\item 操作系统：Windows 10/11、macOS、Linux；
-	\item Python：3.10 及以上版本；
-	\item 第三方库：PyQt5、PyQtGraph、NumPy；
-	\item 显示要求：建议分辨率不低于 1366$\times$768。
-\end{enumerate}
+软件运行环境如表~\ref{tab:runtime_environment} 所示。开发环境以 Windows 11 为主，程序代码保持 Windows、macOS 和 Linux 兼容。
+
+\begin{table}[htbp]
+	\centering
+	\caption{推荐运行环境}
+	\label{tab:runtime_environment}
+	\begin{tabular}{p{0.22\textwidth}p{0.31\textwidth}p{0.35\textwidth}}
+		\toprule
+		\textbf{项目} & \textbf{推荐配置} & \textbf{说明} \\
+		\midrule
+		操作系统 & Windows 10/11、macOS、Linux & 图形界面需支持 Qt 5。 \\
+		Python & 3.10 及以上 & 使用虚拟环境安装依赖，便于升级和回退。 \\
+		内存 & 8 GB 及以上 & 长会话、较高采样率和 B/C-Scan 显示时建议 16 GB。 \\
+		硬盘 & 10 GB 可用空间 & 波形分块和报告文件按检测会话增长。 \\
+		显示分辨率 & 1366$\times$768 及以上 & 1920$\times$1080 可获得更完整的面板布局。 \\
+		Python 依赖 & PyQt5、PyQtGraph、NumPy、SciPy & 版本要求见 \texttt{requirements.txt}。 \\
+		数据存储 & SQLite 与本地文件系统 & 数据库保存索引和元数据，NPZ 保存波形数组。 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
 
 \subsection{术语与缩略语}
 \par
-为便于阅读，本文对常用术语作简要说明：
-\begin{enumerate}
-	\item A-Scan：A型显示，时间-幅度波形；
-	\item 增益（dB）：放大信号幅度的参数；
-	\item 声程（mm）：设置的最大检测路径或显示范围；
-	\item 声速（m/s）：材料中超声传播速度，用于时间与深度换算；
-	\item 闸门（Gate）：在时间/深度窗口内进行峰值检测与触发的门控区域；
-	\item 门限（Level）：闸门触发阈值，通常以屏高比例表示；
-	\item 游标（Cursor）：用于读取波形指定位置的时间/深度与幅度；
-	\item 零点延迟：探头/系统零点延迟，用于时间零点校正；
-	\item FFT：快速傅里叶变换（Fast Fourier Transform），用于时域到频域的转换；
-	\item DAC：距离-波幅校正曲线（Distance-Amplitude Correction），用于缺陷定量评估。
-\end{enumerate}
+说明书使用的检测参数和测量术语如表~\ref{tab:terminology_measurement} 所示，频谱、补偿和扫描成像术语如表~\ref{tab:terminology_analysis} 所示。正文中的时间、深度、幅值和增益均采用表内单位。
+
+\begin{table}[htbp]
+	\centering
+	\caption{检测参数与测量术语}
+	\label{tab:terminology_measurement}
+	\begin{tabular}{p{0.20\textwidth}p{0.30\textwidth}p{0.38\textwidth}}
+		\toprule
+		\textbf{术语} & \textbf{含义} & \textbf{在软件中的体现} \\
+		\midrule
+		A-Scan & A 型显示，以时间为横轴、幅值为纵轴的单通道波形。 & 主波形区显示原始信号与包络。 \\
+		UT & Ultrasonic Testing，超声检测。 & 软件面向的检测领域。 \\
+		增益 & 接收信号的整体放大倍数，单位为 dB。 & 控制回波幅值，不改变传播时间。 \\
+		声程 & 波形窗口对应的最大检测距离，单位为 mm。 & 与声速共同决定时间轴长度。 \\
+		声速 & 超声波在材料中的传播速度，单位为 m/s。 & 用于时间与深度换算。 \\
+		零点延迟 & 探头、楔块和电路引入的固定时间偏移，单位为 $\mu$s。 & 校准浅表缺陷读数。 \\
+		闸门 & 在指定时间或深度范围内检测回波的窗口。 & Gate A/B/C 分别设置起点、宽度和门限。 \\
+		门限 & 触发记录或判定的最小包络幅值。 & 与闸门内峰值比较。 \\
+		游标 & 用于读取任意位置时间、深度和幅值的测量线。 & A/B 两条游标显示差值与距离。 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
+
+\begin{table}[htbp]
+	\centering
+	\caption{分析与成像术语}
+	\label{tab:terminology_analysis}
+	\begin{tabular}{p{0.20\textwidth}p{0.30\textwidth}p{0.38\textwidth}}
+		\toprule
+		\textbf{术语} & \textbf{含义} & \textbf{在软件中的体现} \\
+		\midrule
+		FFT & Fast Fourier Transform，快速傅里叶变换。 & 将时域波形转换为频率谱。 \\
+		DAC & Distance-Amplitude Correction，距离-波幅校正。 & 生成深度-幅值参考曲线。 \\
+		TCG & Time-Corrected Gain，时间增益补偿。 & 按深度分段补偿回波幅值。 \\
+		B-Scan & 以扫描位置为纵轴、时间为横轴的二维波形堆叠图。 & 显示检测过程的时间变化。 \\
+		C-Scan & 以 X/Y 平面位置为坐标的幅值分布图。 & 显示光栅扫描区域的缺陷分布。 \\
+		\bottomrule
+	\end{tabular}
+\end{table}
