@@ -5,8 +5,10 @@ from __future__ import annotations
 from app.common.unit_converter import depth_mm_to_time_us, time_us_to_depth_mm
 from app.common.layout_manager import LayoutManager
 from app.common.shortcut_manager import ShortcutManager
+from app.view.advanced_ut_panel import AdvancedUTPanel
 from app.view.fft_panel import FFTPanel
 from app.view.replay_panel import ReplayPanel
+from app.view.scan_panel import ScanPanel
 from app.view.statistics_panel import StatisticsPanel
 
 from datetime import datetime
@@ -225,6 +227,12 @@ class MainWindow(QMainWindow):
         self.toggleReplayAction = QAction("数据回放面板", self)
         self.toggleReplayAction.setCheckable(True)
         self.toggleReplayAction.setChecked(False)
+        self.toggleAdvancedUTAction = QAction("多闸门与TCG", self)
+        self.toggleAdvancedUTAction.setCheckable(True)
+        self.toggleAdvancedUTAction.setChecked(False)
+        self.toggleScanPanelAction = QAction("B/C-Scan成像", self)
+        self.toggleScanPanelAction.setCheckable(True)
+        self.toggleScanPanelAction.setChecked(False)
 
         self.viewMenu.addAction(self.autoScaleAction)
         self.viewMenu.addAction(self.toggleGridAction)
@@ -238,6 +246,8 @@ class MainWindow(QMainWindow):
         self.viewMenu.addAction(self.signalComparisonAction)
         self.viewMenu.addSeparator()
         self.viewMenu.addAction(self.toggleReplayAction)
+        self.viewMenu.addAction(self.toggleAdvancedUTAction)
+        self.viewMenu.addAction(self.toggleScanPanelAction)
 
         self.aboutAction = QAction("关于本系统", self)
         self.shortcutHelpAction = QAction("快捷键帮助", self)
@@ -661,6 +671,20 @@ class MainWindow(QMainWindow):
         self.addDockWidget(Qt.BottomDockWidgetArea, self.replayDockWidget)
         self.replayDockWidget.setVisible(False)
 
+        self.advancedUTDockWidget = QDockWidget("多闸门与TCG", self)
+        self.advancedUTDockWidget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
+        self.advancedUTPanel = AdvancedUTPanel(self.advancedUTDockWidget)
+        self.advancedUTDockWidget.setWidget(self.advancedUTPanel)
+        self.addDockWidget(Qt.RightDockWidgetArea, self.advancedUTDockWidget)
+        self.advancedUTDockWidget.setVisible(False)
+
+        self.scanDockWidget = QDockWidget("B/C-Scan成像", self)
+        self.scanDockWidget.setAllowedAreas(Qt.BottomDockWidgetArea)
+        self.scanPanel = ScanPanel(self.scanDockWidget)
+        self.scanDockWidget.setWidget(self.scanPanel)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.scanDockWidget)
+        self.scanDockWidget.setVisible(False)
+
     def _buildStatusBar(self) -> None:
         """
         构建底部状态栏。
@@ -736,6 +760,8 @@ class MainWindow(QMainWindow):
         self.signalFeaturesAction.triggered.connect(self.signalFeaturesRequested.emit)
         self.signalComparisonAction.triggered.connect(self.signalComparisonRequested.emit)
         self.toggleReplayAction.toggled.connect(self._toggleReplayVisibility)
+        self.toggleAdvancedUTAction.toggled.connect(self.advancedUTDockWidget.setVisible)
+        self.toggleScanPanelAction.toggled.connect(self.scanDockWidget.setVisible)
         self.resetGateAction.triggered.connect(self._resetGateLinesToDefault)
         self.velocityCalibrationAction.triggered.connect(self.velocityCalibrationRequested.emit)
         self.zeroCalibrationAction.triggered.connect(self.zeroCalibrationRequested.emit)

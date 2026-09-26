@@ -20,7 +20,10 @@ from app.common.report_generator import ReportGenerator, ReportConfig
 from app.common.report_exporter import ReportExporter
 from app.model.ultrasonic_model import UltrasonicSignalModel
 from app.model.defect_analyzer import DefectAnalyzer, DefectRecord
+from app.model.gate_analyzer import GateAnalyzer, GateConfig, GateResult
+from app.model.scan_geometry import ScanGrid
 from app.model.session_repository import FrameChunkStore, SessionRepository
+from app.model.tcg import TcgPoint, TcgProfile
 from app.view.main_window import MainWindow
 from app.view.report_config_dialog import ReportConfigDialog
 from app.view.report_preview_window import ReportPreviewWindow
@@ -113,6 +116,15 @@ class MainController(QObject):
         self.lastSessionId: str | None = None
         self.replaySessionId: str | None = None
         self.replayFrames: list[dict[str, Any]] = []
+        self.advancedGates: dict[str, GateConfig] = {
+            "A": GateConfig("A", "闸门A", 25.0, 70.0, 0.55),
+            "B": GateConfig("B", "闸门B", 40.0, 20.0, 0.60, enabled=False),
+            "C": GateConfig("C", "闸门C", 70.0, 20.0, 0.65, enabled=False),
+        }
+        self.tcgEnabled = False
+        self.tcgProfile = TcgProfile()
+        self.scanGrid = ScanGrid(10, 10, 5.0, 5.0)
+        self.cScanValues: dict[int, float] = {}
 
         self._bindSignals()
         self._initializeView()
@@ -156,6 +168,8 @@ class MainController(QObject):
         self.view.replayPanel.refreshRequested.connect(self.refreshReplaySessions)
         self.view.replayPanel.sessionSelected.connect(self.loadReplaySession)
         self.view.replayPanel.frameChanged.connect(self.loadReplayFrame)
+        self.view.advancedUTPanel.gateChanged.connect(self.updateAdvancedGate)
+        self.view.advancedUTPanel.tcgChanged.connect(self.updateTcgProfile)
 
         # 统计分析面板信号连接
         self.view.statisticsPanel.refreshRequested.connect(self.refreshDefectStatistics)
@@ -787,7 +801,10 @@ class MainController(QObject):
         frameData = self.model.generateFrame()
         frameData["baseRawSignal"] = frameData["rawSignal"].copy()
         frameData["baseEnvelopeSignal"] = frameData["envelopeSignal"].copy()
+        frameData["filterBaseRawSignal"] = frameData["rawSignal"].copy()
+        frameData["filterBaseEnvelopeSignal"] = frameData["envelopeSignal"].copy()
         frameData["filterSettings"] = None
+        frameData["tcgSignal"] = frameData["rawSignal"].copy()
 
         # 应用信号平均（如果启用）
         if self.signalAverageEnabled:
@@ -796,6 +813,20 @@ class MainController(QObject):
             frameData["rawSignal"] = averaged_signal
             frameData["envelopeSignal"] = self.model.compute_enhanced_envelope(averaged_signal)
             frameData["baseEnvelopeSignal"] = frameData["envelopeSignal"].copy()
+            frameData["filterBaseRawSignal"] = averaged_signal.copy()
+            frameData["filterBaseEnvelopeSignal"] = frameData["envelopeSignal"].copy()
+            frameData["tcgSignal"] = averaged_signal.copy()
+
+        if self.tcgEnabled:
+            compensated = self.tcgProfile.apply(
+                frameData["filterBaseRawSignal"],
+                frameData["timeAxisUs"],
+                self.model.parameters["soundVelocityMps"],
+            ).astype(np.float32)
+            frameData["tcgSignal"] = compensated
+            frameData["rawSignal"] = compensated
+            frameData["envelopeSignal"] = self.model.compute_enhanced_envelope(compensated)
+            frameData["filterBaseEnvelopeSignal"] = frameData["envelopeSignal"].copy()
         self.view.prepareGateForTimeAxis(frameData["timeAxisUs"])
         gatePeakResult = self._captureGatePeak(
             timeAxisUs=frameData["timeAxisUs"],
@@ -829,6 +860,7 @@ class MainController(QObject):
         peakTimeUs = gatePeakResult["peakTimeUs"]
         peakAmplitude = float(gatePeakResult["peakAmplitude"])
         gateTriggered = bool(gatePeakResult["triggered"])
+        self._updateAdvancedAnalysis(frameData, peakAmplitude)
 
         if self.peakHoldEnabled:
             if self.peakHoldEnvelope is None or self.peakHoldEnvelope.size != frameData["envelopeSignal"].size:
@@ -1309,6 +1341,9 @@ class MainController(QObject):
             "envelopeSignal": envelope_signal.copy(),
             "baseRawSignal": raw_signal.copy(),
             "baseEnvelopeSignal": envelope_signal.copy(),
+            "filterBaseRawSignal": raw_signal.copy(),
+            "filterBaseEnvelopeSignal": envelope_signal.copy(),
+            "tcgSignal": raw_signal.copy(),
             "filterSettings": None,
             "thresholdLevel": float(self.model.parameters["thresholdLevel"]),
             "gateRangeUs": (
@@ -1331,6 +1366,79 @@ class MainController(QObject):
         """Finish active persistence state when the application closes."""
         self._finishActiveSession()
         self.sessionRepository.close()
+
+    def updateAdvancedGate(self, gate_data: dict[str, Any]) -> None:
+        """Update Gate B/C configuration from the advanced panel."""
+        gate_id = str(gate_data.get("gate_id", "")).upper()
+        if gate_id not in {"B", "C"}:
+            return
+        self.advancedGates[gate_id] = GateConfig(
+            gate_id=gate_id,
+            name=str(gate_data.get("name", f"闸门{gate_id}")),
+            start_mm=float(gate_data.get("start_mm", 0.0)),
+            width_mm=max(float(gate_data.get("width_mm", 0.0)), 0.01),
+            level=float(gate_data.get("level", 0.5)),
+            enabled=bool(gate_data.get("enabled", False)),
+        )
+
+    def updateTcgProfile(self, tcg_data: dict[str, Any]) -> None:
+        """Replace the active TCG profile from the advanced panel."""
+        points = [
+            TcgPoint(
+                depth_mm=float(point["depth_mm"]),
+                gain_db=float(point["gain_db"]),
+            )
+            for point in tcg_data.get("points", [])
+        ]
+        self.tcgProfile = TcgProfile(points or [TcgPoint(0.0, 0.0)])
+        self.tcgEnabled = bool(tcg_data.get("enabled", False))
+        self.view.showStatusMessage(
+            "TCG已启用。" if self.tcgEnabled else "TCG已关闭。",
+            1400,
+        )
+
+    def _updateAdvancedAnalysis(
+        self,
+        frame_data: dict[str, Any],
+        peak_amplitude: float,
+    ) -> None:
+        """Evaluate all gates and update B/C-scan imagery."""
+        try:
+            start_us, end_us, _, level = self.view.getGateConfig()
+            start_depth_mm = self.model._timeSecToDepthMm(start_us * 1e-6)
+            end_depth_mm = self.model._timeSecToDepthMm(end_us * 1e-6)
+            self.advancedGates["A"] = GateConfig(
+                gate_id="A",
+                name="闸门A",
+                start_mm=start_depth_mm,
+                width_mm=max(end_depth_mm - start_depth_mm, 0.01),
+                level=level,
+                enabled=True,
+            )
+            results = GateAnalyzer.analyze(
+                frame_data["timeAxisUs"],
+                frame_data["envelopeSignal"],
+                list(self.advancedGates.values()),
+                lambda depth_mm: self.model._depthMmToTimeSec(depth_mm) * 1e6,
+            )
+            for gate_id, result in results.items():
+                row = self.view.advancedUTPanel.gate_rows.get(gate_id)
+                if row is not None:
+                    row.set_result(result.triggered, result.peak_amplitude)
+
+            self.view.scanPanel.update_b_scan(frame_data.get("bScanMatrix", np.zeros((1, 1))))
+            scan_index = int(frame_data.get("frameCounter", 0)) % (
+                self.scanGrid.rows * self.scanGrid.columns
+            )
+            self.cScanValues[scan_index] = max(
+                self.cScanValues.get(scan_index, 0.0),
+                float(peak_amplitude),
+            )
+            self.view.scanPanel.update_c_scan(
+                self.scanGrid.build_c_scan(self.cScanValues.items())
+            )
+        except Exception as error:
+            logger.warning("高级UT分析更新失败：%s", error)
 
     def computeFFT(self, settings: dict) -> None:
         """
@@ -1386,7 +1494,7 @@ class MainController(QObject):
         try:
             # 始终从未经滤波的基础波形计算，避免重复滤波叠加。
             raw_signal = self.lastFrameData.get(
-                "baseRawSignal",
+                "filterBaseRawSignal",
                 self.lastFrameData["rawSignal"],
             )
 
@@ -1422,8 +1530,8 @@ class MainController(QObject):
         if self.lastFrameData is None:
             self.view.showStatusMessage("当前无可用波形数据。", isWarning=True)
             return
-        raw_signal = self.lastFrameData.get("baseRawSignal")
-        envelope_signal = self.lastFrameData.get("baseEnvelopeSignal")
+        raw_signal = self.lastFrameData.get("filterBaseRawSignal")
+        envelope_signal = self.lastFrameData.get("filterBaseEnvelopeSignal")
         if raw_signal is None or envelope_signal is None:
             self.view.showStatusMessage("当前没有可复位的滤波结果。")
             return
