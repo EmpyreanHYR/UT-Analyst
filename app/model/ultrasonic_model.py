@@ -8,6 +8,7 @@ import numpy as np
 
 from app.common.unit_converter import depth_mm_to_time_sec, time_sec_to_depth_mm
 from app.model.signal_generator import SignalGenerator
+from app.model.signal_processor import SignalProcessor
 
 
 class UltrasonicSignalModel:
@@ -26,6 +27,7 @@ class UltrasonicSignalModel:
         # 随机数发生器：用于模拟工业现场中的噪声与缺陷随机分布。
         self.randomGenerator = np.random.default_rng()
         self.signalGenerator = SignalGenerator(randomGenerator=self.randomGenerator)
+        self.signalProcessor = SignalProcessor(sampling_rate_hz=20_000_000.0)
 
         # 系统默认参数（工程化命名，便于后期接入真实硬件配置）。
         self.parameters: dict[str, float] = {
@@ -262,3 +264,115 @@ class UltrasonicSignalModel:
             self.parameters["soundVelocityMps"],
             self.parameters.get("probeDelayUs", 0.0),
         )
+
+    def compute_fft(
+        self,
+        signal: np.ndarray,
+        n_fft: int | None = None,
+        window: str = "汉宁窗",
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        计算信号的FFT频谱。
+
+        参数：
+        - signal: 输入时域信号
+        - n_fft: FFT点数，None表示使用信号长度
+
+        返回：
+        - frequencies: 频率数组（Hz）
+        - magnitude: 幅值数组（归一化）
+        """
+        return self.signalProcessor.compute_fft(
+            signal,
+            n_fft=n_fft,
+            window=window,
+            sample_rate_hz=float(self.parameters["samplingRateHz"]),
+        )
+
+    def apply_bandpass_filter(self, signal: np.ndarray, low_freq_hz: float, high_freq_hz: float, order: int = 4) -> np.ndarray:
+        """
+        应用带通滤波器。
+
+        参数：
+        - signal: 输入信号
+        - low_freq_hz: 低频截止频率（Hz）
+        - high_freq_hz: 高频截止频率（Hz）
+        - order: 滤波器阶数
+
+        返回：
+        - 滤波后的信号
+        """
+        b, a = self.signalProcessor.design_bandpass_filter(low_freq_hz, high_freq_hz, order)
+        return self.signalProcessor.apply_filter(signal, b, a)
+
+    def apply_filter(
+        self,
+        signal: np.ndarray,
+        filter_type: str,
+        low_freq_hz: float | None,
+        high_freq_hz: float | None,
+        order: int = 4,
+    ) -> np.ndarray:
+        """使用当前采样率设计并应用数字滤波器。"""
+        sos = self.signalProcessor.design_filter(
+            filter_type,
+            low_freq_hz,
+            high_freq_hz,
+            order=order,
+            sample_rate_hz=float(self.parameters["samplingRateHz"]),
+        )
+        return self.signalProcessor.apply_filter(signal, sos)
+
+    def compute_signal_average(self, signals: list[np.ndarray], method: str = 'mean') -> np.ndarray:
+        """
+        计算多信号平均。
+
+        参数：
+        - signals: 信号列表
+        - method: 平均方法，'mean'或'median'
+
+        返回：
+        - 平均后的信号
+        """
+        return self.signalProcessor.compute_signal_average(signals, method)
+
+    def compute_enhanced_envelope(self, signal: np.ndarray, window_size: int = 50) -> np.ndarray:
+        """
+        计算增强包络线（平滑包络）。
+
+        参数：
+        - signal: 输入信号
+        - window_size: 平滑窗口大小
+
+        返回：
+        - 增强包络信号
+        """
+        return self.signalProcessor.compute_enhanced_envelope(signal, window_size)
+
+    def extract_signal_features(self, signal: np.ndarray, time_axis_us: np.ndarray) -> dict[str, Any]:
+        """
+        提取信号特征。
+
+        参数：
+        - signal: 输入信号
+        - time_axis_us: 时间轴（微秒）
+
+        返回：
+        - 特征字典
+        """
+        return self.signalProcessor.extract_signal_features(signal, time_axis_us)
+
+    def compare_signals(self, signal1: np.ndarray, signal2: np.ndarray,
+                        time_axis_us: np.ndarray) -> dict[str, Any]:
+        """
+        比较两个信号的差异。
+
+        参数：
+        - signal1: 第一个信号
+        - signal2: 第二个信号
+        - time_axis_us: 时间轴（微秒）
+
+        返回：
+        - 比较结果字典
+        """
+        return self.signalProcessor.compare_signals(signal1, signal2, time_axis_us)

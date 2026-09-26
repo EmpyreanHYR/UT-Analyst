@@ -79,9 +79,11 @@ class MainWindow(QMainWindow):
     openRequested = pyqtSignal()
     saveRequested = pyqtSignal()
     reportRequested = pyqtSignal()
-    
+
     # 统计分析相关信号
     defectStatisticsRefreshRequested = pyqtSignal()
+    signalFeaturesRequested = pyqtSignal()
+    signalComparisonRequested = pyqtSignal()
 
     def __init__(self) -> None:
         super().__init__()
@@ -216,7 +218,9 @@ class MainWindow(QMainWindow):
         self.toggleStatisticsAction.setCheckable(True)
         self.toggleStatisticsAction.setChecked(False)
         self.toggleStatisticsAction.setShortcut("F6")
-        
+        self.signalFeaturesAction = QAction("提取信号特征", self)
+        self.signalComparisonAction = QAction("与参考波形对比", self)
+
         self.viewMenu.addAction(self.autoScaleAction)
         self.viewMenu.addAction(self.toggleGridAction)
         self.viewMenu.addAction(self.clearPeakAction)
@@ -224,6 +228,9 @@ class MainWindow(QMainWindow):
         self.viewMenu.addSeparator()
         self.viewMenu.addAction(self.toggleFFTAction)
         self.viewMenu.addAction(self.toggleStatisticsAction)
+        self.viewMenu.addSeparator()
+        self.viewMenu.addAction(self.signalFeaturesAction)
+        self.viewMenu.addAction(self.signalComparisonAction)
 
         self.aboutAction = QAction("关于本系统", self)
         self.shortcutHelpAction = QAction("快捷键帮助", self)
@@ -617,25 +624,25 @@ class MainWindow(QMainWindow):
 
         self.controlDockWidget.setWidget(controlScrollArea)
         self.addDockWidget(Qt.RightDockWidgetArea, self.controlDockWidget)
-        
+
         # 创建FFT频谱分析面板（底部DockWidget）
         self.fftDockWidget = QDockWidget("频谱分析", self)
         self.fftDockWidget.setAllowedAreas(Qt.BottomDockWidgetArea)
-        
+
         self.fftPanel = FFTPanel(self.fftDockWidget)
         self.fftDockWidget.setWidget(self.fftPanel)
-        
+
         self.addDockWidget(Qt.BottomDockWidgetArea, self.fftDockWidget)
         # 默认隐藏FFT面板，用户可以通过菜单或快捷键显示
         self.fftDockWidget.setVisible(False)
-        
+
         # 创建缺陷统计分析面板（左侧DockWidget）
         self.statisticsDockWidget = QDockWidget("缺陷统计分析", self)
         self.statisticsDockWidget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
-        
+
         self.statisticsPanel = StatisticsPanel(self.statisticsDockWidget)
         self.statisticsDockWidget.setWidget(self.statisticsPanel)
-        
+
         self.addDockWidget(Qt.LeftDockWidgetArea, self.statisticsDockWidget)
         # 默认隐藏统计面板
         self.statisticsDockWidget.setVisible(False)
@@ -712,6 +719,8 @@ class MainWindow(QMainWindow):
         self.toggleCursorLabelAction.toggled.connect(self._setCursorLabelVisible)
         self.toggleFFTAction.toggled.connect(self._toggleFFTVisibility)
         self.toggleStatisticsAction.toggled.connect(self._toggleStatisticsVisibility)
+        self.signalFeaturesAction.triggered.connect(self.signalFeaturesRequested.emit)
+        self.signalComparisonAction.triggered.connect(self.signalComparisonRequested.emit)
         self.resetGateAction.triggered.connect(self._resetGateLinesToDefault)
         self.velocityCalibrationAction.triggered.connect(self.velocityCalibrationRequested.emit)
         self.zeroCalibrationAction.triggered.connect(self.zeroCalibrationRequested.emit)
@@ -762,7 +771,8 @@ class MainWindow(QMainWindow):
         sm.register_action("clear_peak", self.clearPeakAction)
         sm.register_action("toggle_cursor_label", self.toggleCursorLabelAction)
         sm.register_action("fft_toggle", self.toggleFFTAction)
-        sm.register_action("statistics_toggle", self.toggleStatisticsAction, "F6")
+        sm.register_action("statistics_toggle", self.toggleStatisticsAction)
+        sm.register_action("shortcut_help", self.shortcutHelpAction)
         sm.register_action("delete_record", self.deleteRecordAction)
         sm.register_action("clear_records", self.clearRecordAction)
         sm.register_action("start_record", self.startRecordAction)
@@ -777,7 +787,7 @@ class MainWindow(QMainWindow):
             y = geometry.get("y")
             if x is not None and y is not None:
                 self.move(x, y)
-        
+
         dock_state = self.layoutManager.load_dock_layout()
         if dock_state:
             self.restoreState(dock_state)
@@ -794,7 +804,7 @@ class MainWindow(QMainWindow):
         dock_state = self.saveState()
         self.layoutManager.save_dock_layout(dock_state)
         super().closeEvent(event)
-            
+
     def _syncGainFromSlider(self, sliderValue: int) -> None:
         """滑动条变化时同步更新增益输入框。"""
         if abs(self.gainSpinBox.value() - float(sliderValue)) > 1e-6:
@@ -1541,8 +1551,8 @@ class MainWindow(QMainWindow):
             "关于",
             "超声波智能辅助检测系统 V1.0\n"
             "A-Scan 实时仿真 + 线性闸门检测 + 缺陷定量分析。\n\n"
-            "新增功能：频谱分析(FFT)、数字滤波、缺陷统计、\n"
-            "PDF报告导出、快捷键系统、界面布局记忆。",
+            "新增功能：频谱分析(FFT)、数字滤波、信号平均、\n"
+            "缺陷统计、快捷键系统、界面布局记忆。",
         )
 
     def _showShortcutHelp(self) -> None:

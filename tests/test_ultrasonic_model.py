@@ -111,6 +111,15 @@ class TestModelUpdateParameters:
         self.model.updateParameters({"noiseLevel": 5.0})
         assert self.model.parameters["noiseLevel"] <= 0.35
 
+    def test_fft_uses_current_sampling_rate(self) -> None:
+        """修改采样率后，模型FFT频率轴应同步更新。"""
+        self.model.updateParameters({"samplingRateHz": 100_000_000.0})
+        frame = self.model.generateFrame()
+
+        frequencies, _ = self.model.compute_fft(frame["rawSignal"], n_fft=1024)
+
+        assert frequencies[-1] == pytest.approx(50_000_000.0, rel=1e-6)
+
 
 class TestModelGenerateFrame:
     """验证帧生成功能。"""

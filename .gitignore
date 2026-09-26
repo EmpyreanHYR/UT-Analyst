@@ -36,3 +36,11 @@ logs/
 .pytest_cache/
 .coverage
 htmlcov/
+config/layout.json
+config/preferences.json
+data/
+reasonix.toml
+Direction/main.aux
+Direction/main.log
+Direction/main.synctex(busy)
+Direction/main.toc

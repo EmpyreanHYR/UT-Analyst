@@ -13,11 +13,14 @@ from typing import Any
 import numpy as np
 from PyQt5.QtCore import QBuffer, QByteArray, QIODevice, QObject, QTimer
 from PyQt5.QtGui import QPixmap
-from PyQt5.QtWidgets import QFileDialog, QInputDialog
+from PyQt5.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from app.common.unit_converter import time_us_to_depth_mm
+from app.common.report_generator import ReportGenerator, ReportConfig
 from app.model.ultrasonic_model import UltrasonicSignalModel
+from app.model.defect_analyzer import DefectAnalyzer, DefectRecord
 from app.view.main_window import MainWindow
+from app.view.report_config_dialog import ReportConfigDialog
 from app.view.report_preview_window import ReportPreviewWindow
 
 logger = logging.getLogger("ut_analyst.controller")
@@ -54,6 +57,7 @@ class MainController(QObject):
         self.peakHoldEnabled = False
         self.triggerMode = "auto"
         self.referenceEnvelope: np.ndarray | None = None
+        self.referenceRawSignal: np.ndarray | None = None
         self.referenceTimeAxisUs: np.ndarray | None = None
         self.peakHoldEnvelope: np.ndarray | None = None
 
@@ -76,6 +80,16 @@ class MainController(QObject):
         self.currentReportPixmap = QPixmap()
         self.currentReportImageDataUri = ""
         self.loggedDefectSnapshots: list[dict[str, Any]] = []
+
+        # 增强功能模块。
+        self.defectAnalyzer = DefectAnalyzer()
+        self.reportGenerator = ReportGenerator()
+        self.reportConfig = ReportConfig()
+
+        # 信号平均历史缓存。
+        self.signalAverageEnabled = False
+        self.signalAverageCount = 8
+        self.signalAverageBuffer: list[np.ndarray] = []
 
         self._bindSignals()
         self._initializeView()
@@ -107,6 +121,18 @@ class MainController(QObject):
         self.view.openRequested.connect(self.openDataFile)
         self.view.saveRequested.connect(self.saveWaveformData)
         self.view.reportRequested.connect(self.generateReport)
+
+        # FFT频谱分析面板信号连接
+        self.view.fftPanel.fftRequested.connect(self.computeFFT)
+        self.view.fftPanel.filterApplied.connect(self.applyFilter)
+        self.view.fftPanel.filterResetRequested.connect(self.resetFilter)
+        self.view.fftPanel.signalAverageChanged.connect(self.setSignalAverage)
+        self.view.signalFeaturesRequested.connect(self.showSignalFeatures)
+        self.view.signalComparisonRequested.connect(self.compareWithReference)
+
+        # 统计分析面板信号连接
+        self.view.statisticsPanel.refreshRequested.connect(self.refreshDefectStatistics)
+        self.view.defectStatisticsRefreshRequested.connect(self.refreshDefectStatistics)
 
         self.acquisitionTimer.timeout.connect(self._refreshFrame)
 
@@ -205,6 +231,10 @@ class MainController(QObject):
             return
         assert self.lastFrameData is not None
         self.referenceEnvelope = self.lastFrameData["envelopeSignal"].copy()
+        self.referenceRawSignal = self.lastFrameData.get(
+            "baseRawSignal",
+            self.lastFrameData["rawSignal"],
+        ).copy()
         self.referenceTimeAxisUs = self.lastFrameData["timeAxisUs"].copy()
         self.view.showStatusMessage("参考波形已捕获。", 1500)
         self._refreshFrame()
@@ -212,6 +242,7 @@ class MainController(QObject):
     def clearReferenceTrace(self) -> None:
         """清除参考波形。"""
         self.referenceEnvelope = None
+        self.referenceRawSignal = None
         self.referenceTimeAxisUs = None
         self.view.showStatusMessage("参考波形已清除。", 1300)
         self._refreshFrame()
@@ -297,6 +328,10 @@ class MainController(QObject):
             if int(existingRecord.get("recordUid", -1)) != recordUid
         ]
         self.loggedDefectSnapshots.append(recordData)
+
+        # 自动刷新统计面板（如果可见）
+        if self.view.statisticsDockWidget.isVisible():
+            self.refreshDefectStatistics()
 
     def _onDefectRecordsDeleted(self, deletedUids: object) -> None:
         """同步删除被用户从表格中移除的缺陷截图记录。"""
@@ -587,16 +622,11 @@ class MainController(QObject):
                 self.view.showStatusMessage("当前无可用波形数据，无法生成报告。", isWarning=True)
                 return
 
-            # 允许用户自定义工件名称，方便报告标识。
-            workpieceNameInput, isConfirmed = QInputDialog.getText(
-                self.view,
-                "报告参数",
-                "请输入工件名称：",
-                text=self.workpieceName,
-            )
-            if not isConfirmed:
+            reportDialog = ReportConfigDialog(self.reportConfig, self.view)
+            if reportDialog.exec_() != reportDialog.Accepted:
                 return
-            workpieceName = workpieceNameInput.strip() or self.workpieceName
+            self.reportConfig = reportDialog.build_config()
+            workpieceName = self.reportConfig.workpiece_name
             self.workpieceName = workpieceName
 
             waveformPixmap = self.view.aScanPlot.grab()
@@ -615,13 +645,15 @@ class MainController(QObject):
             decisionResult = "不合格" if hasDefect else "合格"
             detectionTimeText = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            self.currentReportHtmlTemplate = self._buildReportHtmlTemplate(
-                detectionTimeText=detectionTimeText,
-                workpieceName=workpieceName,
-                defectDepthMm=defectDepthMm,
-                decisionResult=decisionResult,
-                overviewImageDataUri=overviewImageDataUri,
-                defectRecords=defectRecords,
+            # 使用增强的ReportGenerator生成报告
+            self.currentReportHtmlTemplate = self.reportGenerator.generate_html_report(
+                config=self.reportConfig,
+                detection_time=detectionTimeText,
+                decision_result=decisionResult,
+                overview_image_data_uri=overviewImageDataUri,
+                defect_records=[],
+                defect_snapshots=defectRecords,
+                parameters=self.model.getParameters() if self.lastFrameData else None,
             )
             self.currentReportPixmap = waveformPixmap
             self.currentReportImageDataUri = overviewImageDataUri
@@ -690,6 +722,17 @@ class MainController(QObject):
             return
 
         frameData = self.model.generateFrame()
+        frameData["baseRawSignal"] = frameData["rawSignal"].copy()
+        frameData["baseEnvelopeSignal"] = frameData["envelopeSignal"].copy()
+        frameData["filterSettings"] = None
+
+        # 应用信号平均（如果启用）
+        if self.signalAverageEnabled:
+            averaged_signal = self._applySignalAverage(frameData["rawSignal"])
+            frameData["baseRawSignal"] = averaged_signal.copy()
+            frameData["rawSignal"] = averaged_signal
+            frameData["envelopeSignal"] = self.model.compute_enhanced_envelope(averaged_signal)
+            frameData["baseEnvelopeSignal"] = frameData["envelopeSignal"].copy()
         self.view.prepareGateForTimeAxis(frameData["timeAxisUs"])
         gatePeakResult = self._captureGatePeak(
             timeAxisUs=frameData["timeAxisUs"],
@@ -1115,3 +1158,311 @@ class MainController(QObject):
 
         exceedRatio = (peakAmplitude - thresholdAmplitude) / max(1.2 - thresholdAmplitude, 1e-6)
         return float(np.clip(0.5 + 0.5 * exceedRatio, 0.0, 1.0))
+
+    def computeFFT(self, settings: dict) -> None:
+        """
+        计算FFT频谱分析。
+
+        参数：
+        - settings: FFT分析设置，包含fft_size和window_type
+        """
+        if self.lastFrameData is None:
+            self.view.showStatusMessage("当前无可用波形数据，无法进行FFT分析。", isWarning=True)
+            return
+
+        try:
+            # 获取当前波形数据
+            raw_signal = self.lastFrameData["rawSignal"]
+            time_axis_us = self.lastFrameData["timeAxisUs"]
+
+            # 计算FFT
+            fft_size = settings.get("fft_size", 1024)
+            window_type = settings.get("window_type", "汉宁窗")
+            frequencies, magnitude = self.model.compute_fft(
+                raw_signal,
+                n_fft=fft_size,
+                window=window_type,
+            )
+
+            # 找到峰值频率
+            peak_index = np.argmax(magnitude)
+            peak_freq = frequencies[peak_index]
+            peak_magnitude = magnitude[peak_index]
+
+            # 更新FFT面板显示
+            self.view.fftPanel.update_fft_display(frequencies, magnitude, peak_freq, peak_magnitude)
+
+            self.view.showStatusMessage(f"FFT分析完成，峰值频率: {peak_freq/1e6:.2f} MHz")
+            logger.info("FFT分析完成，峰值频率: %f Hz", peak_freq)
+
+        except Exception as error:
+            logger.error("FFT分析失败：%s", error, exc_info=True)
+            self.view.showStatusMessage(f"FFT分析失败：{error}", durationMs=3500, isWarning=True)
+
+    def applyFilter(self, filter_settings: dict) -> None:
+        """
+        应用数字滤波器。
+
+        参数：
+        - filter_settings: 滤波器设置，包含滤波器类型、频率范围等
+        """
+        if self.lastFrameData is None:
+            self.view.showStatusMessage("当前无可用波形数据，无法应用滤波器。", isWarning=True)
+            return
+
+        try:
+            # 始终从未经滤波的基础波形计算，避免重复滤波叠加。
+            raw_signal = self.lastFrameData.get(
+                "baseRawSignal",
+                self.lastFrameData["rawSignal"],
+            )
+
+            # 应用滤波器
+            filter_type = filter_settings.get('filter_type', '带通')
+            low_freq_hz = filter_settings.get('low_freq_hz', 0.1e6)
+            high_freq_hz = filter_settings.get('high_freq_hz', 10e6)
+            order = filter_settings.get('order', 4)
+
+            filtered_signal = self.model.apply_filter(
+                raw_signal,
+                filter_type,
+                low_freq_hz if filter_type in {"带通", "高通"} else None,
+                high_freq_hz if filter_type in {"带通", "低通"} else None,
+                order,
+            )
+
+            # 更新波形显示
+            self.lastFrameData["rawSignal"] = filtered_signal
+            self.lastFrameData["envelopeSignal"] = self.model.compute_enhanced_envelope(filtered_signal)
+            self.lastFrameData["filterSettings"] = filter_settings
+            self._renderCurrentFrame(self.lastFrameData)
+
+            self.view.showStatusMessage(f"{filter_type}滤波器应用完成")
+            logger.info("%s滤波器应用完成", filter_type)
+
+        except Exception as error:
+            logger.error("滤波器应用失败：%s", error, exc_info=True)
+            self.view.showStatusMessage(f"滤波器应用失败：{error}", durationMs=3500, isWarning=True)
+
+    def resetFilter(self) -> None:
+        """恢复最近一帧的未滤波波形。"""
+        if self.lastFrameData is None:
+            self.view.showStatusMessage("当前无可用波形数据。", isWarning=True)
+            return
+        raw_signal = self.lastFrameData.get("baseRawSignal")
+        envelope_signal = self.lastFrameData.get("baseEnvelopeSignal")
+        if raw_signal is None or envelope_signal is None:
+            self.view.showStatusMessage("当前没有可复位的滤波结果。")
+            return
+        self.lastFrameData["rawSignal"] = raw_signal.copy()
+        self.lastFrameData["envelopeSignal"] = envelope_signal.copy()
+        self.lastFrameData["filterSettings"] = None
+        self._renderCurrentFrame(self.lastFrameData)
+        self.view.showStatusMessage("滤波器已复位。")
+
+    def showSignalFeatures(self) -> None:
+        """提取当前波形特征并通过对话框展示。"""
+        features = self.extractCurrentSignalFeatures()
+        if features is None:
+            self.view.showStatusMessage("当前无可用波形数据，无法提取特征。", isWarning=True)
+            return
+        rows = [
+            ("均值", f"{features['mean']:.6g}"),
+            ("标准差", f"{features['std']:.6g}"),
+            ("RMS", f"{features['rms']:.6g}"),
+            ("峰峰值", f"{features['peak_to_peak']:.6g}"),
+            ("过零率", f"{features['zero_crossing_rate']:.6f}"),
+            ("能量", f"{features['energy']:.6g}"),
+            ("峰值时间", f"{features['peak_time_us']:.3f} us"),
+            ("峰值幅值", f"{features['peak_amplitude']:.6g}"),
+        ]
+        text = "\n".join(f"{label}: {value}" for label, value in rows)
+        QMessageBox.information(self.view, "信号特征", text)
+
+    def compareWithReference(self) -> None:
+        """将当前波形与已捕获参考波形进行对比。"""
+        if self.lastFrameData is None:
+            self.view.showStatusMessage("当前无可用波形数据。", isWarning=True)
+            return
+        if self.referenceRawSignal is None:
+            self.view.showStatusMessage("请先捕获参考波形，再执行对比。", isWarning=True)
+            return
+        current = self.lastFrameData.get("baseRawSignal", self.lastFrameData["rawSignal"])
+        result = self.compareSignals(self.referenceRawSignal, current)
+        if result is None:
+            return
+        text = (
+            f"平均差异: {result['mean_difference']:.6g}\n"
+            f"最大差异: {result['max_difference']:.6g}\n"
+            f"RMS差异: {result['rms_difference']:.6g}\n"
+            f"相关系数: {result['correlation']:.6f}\n"
+            f"最大差异位置: {result['max_diff_time_us']:.3f} us"
+        )
+        QMessageBox.information(self.view, "波形对比", text)
+
+    def getDefectStatistics(self) -> dict[str, Any]:
+        """
+        获取缺陷统计信息。
+
+        返回：
+        - 统计信息字典
+        """
+        # 同步缺陷记录到分析器
+        self.defectAnalyzer.clear_records()
+        for snap in self.loggedDefectSnapshots:
+            record = DefectRecord(
+                uid=snap.get("recordUid", 0),
+                depth_mm=snap.get("depthMm", 0.0),
+                amplitude=snap.get("amplitude", 0.0),
+                timestamp=snap.get("timestamp", ""),
+            )
+            self.defectAnalyzer.add_record(record)
+
+        stats = self.defectAnalyzer.get_statistics()
+        return {
+            "total_count": stats.total_count,
+            "depth_min_mm": stats.depth_min_mm,
+            "depth_max_mm": stats.depth_max_mm,
+            "depth_mean_mm": stats.depth_mean_mm,
+            "depth_std_mm": stats.depth_std_mm,
+            "amplitude_mean": stats.amplitude_mean,
+            "amplitude_std": stats.amplitude_std,
+            "depth_distribution": stats.depth_distribution,
+            "amplitude_distribution": stats.amplitude_distribution,
+        }
+
+    def setSignalAverage(self, enabled: bool, count: int = 8) -> None:
+        """
+        设置信号平均功能。
+
+        参数：
+        - enabled: 是否启用
+        - count: 平均帧数
+        """
+        self.signalAverageEnabled = enabled
+        self.signalAverageCount = max(2, min(64, count))
+        self.signalAverageBuffer.clear()
+        if enabled:
+            self.view.showStatusMessage(f"信号平均已启用，平均 {self.signalAverageCount} 帧")
+        else:
+            self.view.showStatusMessage("信号平均已关闭")
+
+    def _applySignalAverage(self, raw_signal: np.ndarray) -> np.ndarray:
+        """
+        对信号应用平均处理。
+
+        参数：
+        - raw_signal: 原始信号
+
+        返回：
+        - 平均后的信号
+        """
+        if not self.signalAverageEnabled:
+            return raw_signal
+
+        self.signalAverageBuffer.append(raw_signal.copy())
+
+        # 保持缓冲区大小
+        while len(self.signalAverageBuffer) > self.signalAverageCount:
+            self.signalAverageBuffer.pop(0)
+
+        if len(self.signalAverageBuffer) < 2:
+            return raw_signal
+
+        try:
+            return self.model.compute_signal_average(self.signalAverageBuffer, method='mean')
+        except Exception as error:
+            logger.warning("信号平均失败：%s", error)
+            return raw_signal
+
+    def extractCurrentSignalFeatures(self) -> dict[str, Any] | None:
+        """
+        提取当前帧的信号特征。
+
+        返回：
+        - 特征字典，或None
+        """
+        if self.lastFrameData is None:
+            return None
+
+        try:
+            features = self.model.extract_signal_features(
+                self.lastFrameData["rawSignal"],
+                self.lastFrameData["timeAxisUs"],
+            )
+            return features
+        except Exception as error:
+            logger.error("信号特征提取失败：%s", error)
+            return None
+
+    def refreshDefectStatistics(self) -> None:
+        """刷新缺陷统计数据并更新统计面板。"""
+        try:
+            stats = self.getDefectStatistics()
+            self.view.statisticsPanel.update_statistics(stats)
+
+            # 更新DAC曲线
+            if stats["total_count"] > 0:
+                depths = np.array([r.depth_mm for r in self.defectAnalyzer.defect_records])
+                amplitudes = np.array([r.amplitude for r in self.defectAnalyzer.defect_records])
+
+                # 生成DAC曲线
+                dac_depths, dac_amplitudes = self.defectAnalyzer.generate_dac_curve(
+                    depth_range_mm=(0, max(depths.max() + 20, 150)),
+                    reference_depth_mm=50.0,
+                    reference_amplitude=1.0,
+                )
+
+                self.view.statisticsPanel.update_dac_curve(
+                    dac_depths, dac_amplitudes,
+                    defect_depths=depths.tolist(),
+                    defect_amplitudes=amplitudes.tolist(),
+                )
+            else:
+                # 没有缺陷记录时显示空DAC曲线
+                dac_depths, dac_amplitudes = self.defectAnalyzer.generate_dac_curve()
+                self.view.statisticsPanel.update_dac_curve(dac_depths, dac_amplitudes)
+
+            self.view.showStatusMessage("缺陷统计数据已刷新")
+        except Exception as error:
+            logger.error("刷新缺陷统计失败：%s", error, exc_info=True)
+            self.view.showStatusMessage(f"刷新缺陷统计失败：{error}", isWarning=True)
+
+    def compareSignals(self, signal1: np.ndarray, signal2: np.ndarray) -> dict[str, Any] | None:
+        """
+        比较两个信号的差异。
+
+        参数：
+        - signal1: 第一个信号
+        - signal2: 第二个信号
+
+        返回：
+        - 比较结果字典，或None
+        """
+        if self.lastFrameData is None:
+            self.view.showStatusMessage("当前无可用波形数据，无法进行信号对比。", isWarning=True)
+            return None
+
+        try:
+            result = self.model.compare_signals(
+                signal1, signal2, self.lastFrameData["timeAxisUs"]
+            )
+
+            # 显示比较结果
+            message = (
+                f"信号对比结果：\n"
+                f"平均差异: {result['mean_difference']:.4f}\n"
+                f"最大差异: {result['max_difference']:.4f}\n"
+                f"RMS差异: {result['rms_difference']:.4f}\n"
+                f"相关系数: {result['correlation']:.4f}\n"
+                f"最大差异位置: {result['max_diff_time_us']:.2f} μs"
+            )
+            self.view.showStatusMessage("信号对比完成")
+            logger.info("信号对比完成: 相关系数=%.4f, 最大差异=%.4f",
+                       result['correlation'], result['max_difference'])
+
+            return result
+        except Exception as error:
+            logger.error("信号对比失败：%s", error, exc_info=True)
+            self.view.showStatusMessage(f"信号对比失败：{error}", isWarning=True)
+            return None
