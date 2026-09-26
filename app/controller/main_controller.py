@@ -17,8 +17,10 @@ from PyQt5.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from app.common.unit_converter import time_us_to_depth_mm
 from app.common.report_generator import ReportGenerator, ReportConfig
+from app.common.report_exporter import ReportExporter
 from app.model.ultrasonic_model import UltrasonicSignalModel
 from app.model.defect_analyzer import DefectAnalyzer, DefectRecord
+from app.model.session_repository import FrameChunkStore, SessionRepository
 from app.view.main_window import MainWindow
 from app.view.report_config_dialog import ReportConfigDialog
 from app.view.report_preview_window import ReportPreviewWindow
@@ -37,7 +39,14 @@ class MainController(QObject):
     4. 实现数据保存与检测报告导出流程。
     """
 
-    def __init__(self, model: UltrasonicSignalModel, view: MainWindow) -> None:
+    def __init__(
+        self,
+        model: UltrasonicSignalModel,
+        view: MainWindow,
+        session_repository: SessionRepository | None = None,
+        frame_chunk_store: FrameChunkStore | None = None,
+        data_dir: str | Path | None = None,
+    ) -> None:
         super().__init__()
         self.model = model
         self.view = view
@@ -84,12 +93,26 @@ class MainController(QObject):
         # 增强功能模块。
         self.defectAnalyzer = DefectAnalyzer()
         self.reportGenerator = ReportGenerator()
+        self.reportExporter = ReportExporter()
         self.reportConfig = ReportConfig()
 
         # 信号平均历史缓存。
         self.signalAverageEnabled = False
         self.signalAverageCount = 8
         self.signalAverageBuffer: list[np.ndarray] = []
+
+        storage_root = Path(data_dir) if data_dir is not None else Path(__file__).resolve().parents[2] / "data"
+        self.sessionRepository = session_repository or SessionRepository(
+            storage_root / "ut_analyst.db"
+        )
+        self.frameChunkStore = frame_chunk_store or FrameChunkStore(
+            storage_root / "sessions",
+            self.sessionRepository,
+        )
+        self.activeSessionId: str | None = None
+        self.lastSessionId: str | None = None
+        self.replaySessionId: str | None = None
+        self.replayFrames: list[dict[str, Any]] = []
 
         self._bindSignals()
         self._initializeView()
@@ -129,6 +152,10 @@ class MainController(QObject):
         self.view.fftPanel.signalAverageChanged.connect(self.setSignalAverage)
         self.view.signalFeaturesRequested.connect(self.showSignalFeatures)
         self.view.signalComparisonRequested.connect(self.compareWithReference)
+        self.view.closing.connect(self.shutdown)
+        self.view.replayPanel.refreshRequested.connect(self.refreshReplaySessions)
+        self.view.replayPanel.sessionSelected.connect(self.loadReplaySession)
+        self.view.replayPanel.frameChanged.connect(self.loadReplayFrame)
 
         # 统计分析面板信号连接
         self.view.statisticsPanel.refreshRequested.connect(self.refreshDefectStatistics)
@@ -151,12 +178,14 @@ class MainController(QObject):
         self.view.setRecordingState(False)
         self.view.showStatusMessage("参数初始化完成。")
         self._refreshFrame()
+        self.refreshReplaySessions()
 
     def startAcquisition(self) -> None:
         """启动实时采集。"""
         if self.acquisitionTimer.isActive():
             self.view.showStatusMessage("采集已在运行。")
             return
+        self._ensureActiveSession()
         if self.freezeEnabled:
             self.setFreezeEnabled(False)
         self.acquisitionTimer.start()
@@ -172,16 +201,20 @@ class MainController(QObject):
             return
         self.stopRecording(showMessage=False)
         self.acquisitionTimer.stop()
+        self._finishActiveSession()
         logger.info("实时采集已停止")
         self.view.showStatusMessage("实时采集已停止。")
 
     def singleShotAcquisition(self) -> None:
         """执行一次单帧采样。"""
+        session_started = self._ensureActiveSession()
         previousFreezeState = self.freezeEnabled
         if self.freezeEnabled:
             self.freezeEnabled = False
         self._refreshFrame()
         self.freezeEnabled = previousFreezeState
+        if session_started and not self.acquisitionTimer.isActive():
+            self._finishActiveSession()
         self.view.showStatusMessage("单次采样完成。")
 
     def resetSystem(self) -> None:
@@ -328,6 +361,15 @@ class MainController(QObject):
             if int(existingRecord.get("recordUid", -1)) != recordUid
         ]
         self.loggedDefectSnapshots.append(recordData)
+        if self.activeSessionId:
+            self.sessionRepository.add_defect(
+                session_id=self.activeSessionId,
+                record_uid=recordUid,
+                depth_mm=recordData["depthMm"],
+                amplitude=recordData["amplitude"],
+                timestamp=recordData["detectedAt"],
+                snapshot_uri=captureDataUri,
+            )
 
         # 自动刷新统计面板（如果可见）
         if self.view.statisticsDockWidget.isVisible():
@@ -681,21 +723,42 @@ class MainController(QObject):
             return
 
         defaultName = f"report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
-        filePath, _ = QFileDialog.getSaveFileName(
+        filePath, selectedFilter = QFileDialog.getSaveFileName(
             self.view,
             "保存检测报告",
             defaultName,
-            "HTML 文件 (*.html)",
+            "HTML 文件 (*.html);;PDF 文件 (*.pdf)",
         )
         if not filePath:
             return
 
         outputPath = Path(filePath)
-        if outputPath.suffix.lower() != ".html":
-            outputPath = outputPath.with_suffix(".html")
+        desired_suffix = ".pdf" if "PDF" in selectedFilter else ".html"
+        if outputPath.suffix.lower() not in {".html", ".pdf"}:
+            outputPath = outputPath.with_suffix(desired_suffix)
 
         try:
-            outputPath.write_text(self.currentReportHtmlTemplate, encoding="utf-8")
+            if outputPath.suffix.lower() == ".pdf":
+                report_hash = self.reportExporter.export_pdf(
+                    self.currentReportHtmlTemplate,
+                    outputPath,
+                )
+                report_format = "pdf"
+            else:
+                report_hash = self.reportExporter.export_html(
+                    self.currentReportHtmlTemplate,
+                    outputPath,
+                )
+                report_format = "html"
+
+            session_id = self.activeSessionId or self.lastSessionId
+            if session_id:
+                self.sessionRepository.add_report(
+                    session_id,
+                    report_format,
+                    outputPath,
+                    report_hash,
+                )
 
             self.view.showStatusMessage(f"报告保存成功：{outputPath.name}")
             logger.info("报告已保存：%s", outputPath)
@@ -746,6 +809,7 @@ class MainController(QObject):
             return
 
         self.lastFrameData = frameData
+        self._record_frame(frameData)
         self._renderCurrentFrame(frameData, gatePeakResult=gatePeakResult)
 
     def _renderCurrentFrame(
@@ -1158,6 +1222,115 @@ class MainController(QObject):
 
         exceedRatio = (peakAmplitude - thresholdAmplitude) / max(1.2 - thresholdAmplitude, 1e-6)
         return float(np.clip(0.5 + 0.5 * exceedRatio, 0.0, 1.0))
+
+    def _ensureActiveSession(self) -> bool:
+        """Create a detection session when one is not active."""
+        if self.activeSessionId:
+            return False
+        self.activeSessionId = self.sessionRepository.start_session(
+            parameters=self.model.getParameters(),
+            workpiece=self.reportConfig.workpiece_name,
+            standard_key=self.reportConfig.standard_key,
+        )
+        self.lastSessionId = self.activeSessionId
+        return True
+
+    def _finishActiveSession(self) -> None:
+        """Flush and close the current detection session."""
+        if not self.activeSessionId:
+            return
+        session_id = self.activeSessionId
+        self.frameChunkStore.flush_session(session_id)
+        decision = "不合格" if self.loggedDefectSnapshots else "合格"
+        self.sessionRepository.finish_session(session_id, decision=decision)
+        self.lastSessionId = session_id
+        self.activeSessionId = None
+        self.refreshReplaySessions()
+
+    def _record_frame(self, frame_data: dict[str, Any]) -> None:
+        """Persist the accepted frame into the active session."""
+        if not self.activeSessionId:
+            return
+        self.frameChunkStore.append_frame(
+            session_id=self.activeSessionId,
+            sequence_id=int(frame_data.get("frameCounter", 0)),
+            time_axis_us=frame_data["timeAxisUs"],
+            raw_signal=frame_data.get("baseRawSignal", frame_data["rawSignal"]),
+            envelope_signal=frame_data.get(
+                "baseEnvelopeSignal",
+                frame_data["envelopeSignal"],
+            ),
+            metadata={
+                "sample_rate_hz": float(self.model.parameters["samplingRateHz"]),
+                "filter_settings": frame_data.get("filterSettings"),
+            },
+        )
+
+    def refreshReplaySessions(self) -> None:
+        """Refresh the replay panel session list."""
+        try:
+            self.view.replayPanel.set_sessions(self.sessionRepository.list_sessions())
+        except Exception as error:
+            logger.error("刷新回放会话失败：%s", error, exc_info=True)
+            self.view.showStatusMessage(f"刷新回放会话失败：{error}", isWarning=True)
+
+    def loadReplaySession(self, session_id: str) -> None:
+        """Load all frame indexes for a saved session."""
+        try:
+            if self.acquisitionTimer.isActive():
+                self.stopAcquisition()
+            self.replaySessionId = session_id
+            self.replayFrames = list(
+                self.sessionRepository.iter_frames(session_id, self.frameChunkStore)
+            )
+            self.view.replayPanel.set_frame_count(len(self.replayFrames))
+            if self.replayFrames:
+                self.loadReplayFrame(0)
+            self.view.showStatusMessage(
+                f"已加载回放会话，共 {len(self.replayFrames)} 帧。",
+                1800,
+            )
+        except Exception as error:
+            self.replayFrames = []
+            logger.error("加载回放会话失败：%s", error, exc_info=True)
+            self.view.showStatusMessage(f"加载回放失败：{error}", isWarning=True)
+
+    def loadReplayFrame(self, frame_index: int) -> None:
+        """Render one frame from the selected replay session."""
+        if frame_index < 0 or frame_index >= len(self.replayFrames):
+            return
+        stored = self.replayFrames[frame_index]
+        time_axis_us = np.asarray(stored["time_axis_us"], dtype=np.float32)
+        raw_signal = np.asarray(stored["raw_signal"], dtype=np.float32)
+        envelope_signal = np.asarray(stored["envelope_signal"], dtype=np.float32)
+        frame_data = {
+            "timeAxisUs": time_axis_us,
+            "rawSignal": raw_signal.copy(),
+            "envelopeSignal": envelope_signal.copy(),
+            "baseRawSignal": raw_signal.copy(),
+            "baseEnvelopeSignal": envelope_signal.copy(),
+            "filterSettings": None,
+            "thresholdLevel": float(self.model.parameters["thresholdLevel"]),
+            "gateRangeUs": (
+                float(self.model._depthMmToTimeSec(self.model.parameters["gateStartMm"]) * 1e6),
+                float(self.model._depthMmToTimeSec(self.model.parameters["gateEndMm"]) * 1e6),
+            ),
+            "peakAmplitude": 0.0,
+            "peakTimeUs": 0.0,
+            "defectDetected": False,
+            "defectDistanceMm": None,
+            "confidence": 0.0,
+            "frameCounter": int(stored["sequence_id"]),
+            "bScanMatrix": self.model.bScanMatrix.copy(),
+        }
+        self.lastFrameData = frame_data
+        self.view.prepareGateForTimeAxis(time_axis_us)
+        self._renderCurrentFrame(frame_data)
+
+    def shutdown(self) -> None:
+        """Finish active persistence state when the application closes."""
+        self._finishActiveSession()
+        self.sessionRepository.close()
 
     def computeFFT(self, settings: dict) -> None:
         """

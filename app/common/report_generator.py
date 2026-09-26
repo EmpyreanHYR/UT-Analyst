@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import base64
+import hashlib
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -256,8 +257,10 @@ class ReportGenerator:
 
     <div class="footer">
         <p>由超声波智能辅助检测系统 UT-Analyst V1.0 生成 | {detection_time}</p>
+        <p>报告内容哈希: __REPORT_HASH__</p>
     </div>
 </body>
 </html>"""
 
-        return html
+        content_hash = hashlib.sha256(html.encode("utf-8")).hexdigest()
+        return html.replace("__REPORT_HASH__", content_hash)

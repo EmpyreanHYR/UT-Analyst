@@ -6,6 +6,7 @@ from app.common.unit_converter import depth_mm_to_time_us, time_us_to_depth_mm
 from app.common.layout_manager import LayoutManager
 from app.common.shortcut_manager import ShortcutManager
 from app.view.fft_panel import FFTPanel
+from app.view.replay_panel import ReplayPanel
 from app.view.statistics_panel import StatisticsPanel
 
 from datetime import datetime
@@ -74,6 +75,7 @@ class MainWindow(QMainWindow):
     zeroCalibrationRequested = pyqtSignal()
     saveCalibrationRequested = pyqtSignal()
     loadCalibrationRequested = pyqtSignal()
+    closing = pyqtSignal()
 
     # 文件与报告相关信号（后续可扩展文件读写、报表导出）。
     openRequested = pyqtSignal()
@@ -220,6 +222,9 @@ class MainWindow(QMainWindow):
         self.toggleStatisticsAction.setShortcut("F6")
         self.signalFeaturesAction = QAction("提取信号特征", self)
         self.signalComparisonAction = QAction("与参考波形对比", self)
+        self.toggleReplayAction = QAction("数据回放面板", self)
+        self.toggleReplayAction.setCheckable(True)
+        self.toggleReplayAction.setChecked(False)
 
         self.viewMenu.addAction(self.autoScaleAction)
         self.viewMenu.addAction(self.toggleGridAction)
@@ -231,6 +236,8 @@ class MainWindow(QMainWindow):
         self.viewMenu.addSeparator()
         self.viewMenu.addAction(self.signalFeaturesAction)
         self.viewMenu.addAction(self.signalComparisonAction)
+        self.viewMenu.addSeparator()
+        self.viewMenu.addAction(self.toggleReplayAction)
 
         self.aboutAction = QAction("关于本系统", self)
         self.shortcutHelpAction = QAction("快捷键帮助", self)
@@ -647,6 +654,13 @@ class MainWindow(QMainWindow):
         # 默认隐藏统计面板
         self.statisticsDockWidget.setVisible(False)
 
+        self.replayDockWidget = QDockWidget("数据回放", self)
+        self.replayDockWidget.setAllowedAreas(Qt.BottomDockWidgetArea)
+        self.replayPanel = ReplayPanel(self.replayDockWidget)
+        self.replayDockWidget.setWidget(self.replayPanel)
+        self.addDockWidget(Qt.BottomDockWidgetArea, self.replayDockWidget)
+        self.replayDockWidget.setVisible(False)
+
     def _buildStatusBar(self) -> None:
         """
         构建底部状态栏。
@@ -721,6 +735,7 @@ class MainWindow(QMainWindow):
         self.toggleStatisticsAction.toggled.connect(self._toggleStatisticsVisibility)
         self.signalFeaturesAction.triggered.connect(self.signalFeaturesRequested.emit)
         self.signalComparisonAction.triggered.connect(self.signalComparisonRequested.emit)
+        self.toggleReplayAction.toggled.connect(self._toggleReplayVisibility)
         self.resetGateAction.triggered.connect(self._resetGateLinesToDefault)
         self.velocityCalibrationAction.triggered.connect(self.velocityCalibrationRequested.emit)
         self.zeroCalibrationAction.triggered.connect(self.zeroCalibrationRequested.emit)
@@ -753,6 +768,10 @@ class MainWindow(QMainWindow):
     def _toggleStatisticsVisibility(self, visible: bool) -> None:
         """切换缺陷统计面板的显示状态。"""
         self.statisticsDockWidget.setVisible(visible)
+
+    def _toggleReplayVisibility(self, visible: bool) -> None:
+        """Toggle the saved-session replay panel."""
+        self.replayDockWidget.setVisible(visible)
 
     def _registerShortcuts(self) -> None:
         """注册快捷键到快捷键管理器。"""
@@ -794,6 +813,7 @@ class MainWindow(QMainWindow):
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         """窗口关闭时保存布局。"""
+        self.closing.emit()
         geometry = {
             "x": self.x(),
             "y": self.y(),

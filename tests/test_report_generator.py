@@ -127,6 +127,19 @@ class TestReportGeneratorBasic:
         assert "张三" in html
         assert "李四" in html
 
+    def test_generate_html_report_includes_hash_label(self) -> None:
+        """报告应包含内容哈希说明，便于签名和追溯。"""
+        html = self.generator.generate_html_report(
+            config=ReportConfig(workpiece_name="哈希测试"),
+            detection_time="2024-01-01 10:00:00",
+            decision_result="合格",
+            overview_image_data_uri="",
+            defect_records=[],
+            defect_snapshots=[],
+        )
+
+        assert "报告内容哈希" in html
+
     def test_generate_html_report_with_notes(self) -> None:
         """应能生成包含备注的HTML报告。"""
         config = ReportConfig(
