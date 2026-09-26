@@ -14,7 +14,7 @@ from uuid import uuid4
 import numpy as np
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 
 
 class SessionRepository:
@@ -43,6 +43,12 @@ class SessionRepository:
             if row is None:
                 self._connection.execute(
                     "INSERT INTO schema_version(version) VALUES (?)",
+                    (SCHEMA_VERSION,),
+                )
+            elif int(row["version"]) == 1:
+                self._migrate_v1_to_v2()
+                self._connection.execute(
+                    "UPDATE schema_version SET version = ?",
                     (SCHEMA_VERSION,),
                 )
             elif int(row["version"]) != SCHEMA_VERSION:
@@ -91,11 +97,26 @@ class SessionRepository:
                     format TEXT NOT NULL,
                     path TEXT NOT NULL,
                     sha256 TEXT NOT NULL,
+                    signed_by INTEGER,
+                    signed_at TEXT,
+                    signature TEXT,
                     created_at TEXT NOT NULL,
                     FOREIGN KEY(session_id) REFERENCES detection_sessions(id)
                 );
                 """
             )
+
+    def _migrate_v1_to_v2(self) -> None:
+        columns = {
+            row["name"]
+            for row in self._connection.execute("PRAGMA table_info(reports)").fetchall()
+        }
+        if "signed_by" not in columns:
+            self._connection.execute("ALTER TABLE reports ADD COLUMN signed_by INTEGER")
+        if "signed_at" not in columns:
+            self._connection.execute("ALTER TABLE reports ADD COLUMN signed_at TEXT")
+        if "signature" not in columns:
+            self._connection.execute("ALTER TABLE reports ADD COLUMN signature TEXT")
 
     def start_session(
         self,
@@ -244,21 +265,42 @@ class SessionRepository:
         report_format: str,
         path: str | Path,
         sha256: str,
+        signed_by: int | None = None,
+        signed_at: str | None = None,
+        signature: str | None = None,
     ) -> None:
         with self._lock, self._connection:
             self._connection.execute(
                 """
-                INSERT INTO reports(session_id, format, path, sha256, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO reports(
+                    session_id, format, path, sha256,
+                    signed_by, signed_at, signature, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     session_id,
                     report_format,
                     str(path),
                     sha256,
+                    signed_by,
+                    signed_at,
+                    signature,
                     datetime.now().isoformat(timespec="seconds"),
                 ),
             )
+
+    def list_reports(self, session_id: str) -> list[dict[str, Any]]:
+        with self._lock:
+            rows = self._connection.execute(
+                """
+                SELECT * FROM reports
+                WHERE session_id = ?
+                ORDER BY id
+                """,
+                (session_id,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def close(self) -> None:
         with self._lock:

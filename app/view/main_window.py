@@ -78,6 +78,7 @@ class MainWindow(QMainWindow):
     saveCalibrationRequested = pyqtSignal()
     loadCalibrationRequested = pyqtSignal()
     closing = pyqtSignal()
+    auditRequested = pyqtSignal()
 
     # 文件与报告相关信号（后续可扩展文件读写、报表导出）。
     openRequested = pyqtSignal()
@@ -250,9 +251,11 @@ class MainWindow(QMainWindow):
         self.viewMenu.addAction(self.toggleScanPanelAction)
 
         self.aboutAction = QAction("关于本系统", self)
+        self.auditAction = QAction("审计日志", self)
         self.shortcutHelpAction = QAction("快捷键帮助", self)
         self.shortcutHelpAction.setShortcut("F1")
         self.helpMenu.addAction(self.shortcutHelpAction)
+        self.helpMenu.addAction(self.auditAction)
         self.helpMenu.addAction(self.aboutAction)
 
     def _buildToolBar(self) -> None:
@@ -769,6 +772,7 @@ class MainWindow(QMainWindow):
         self.loadCalibrationAction.triggered.connect(self.loadCalibrationRequested.emit)
         self.aboutAction.triggered.connect(self._showAboutDialog)
         self.shortcutHelpAction.triggered.connect(self._showShortcutHelp)
+        self.auditAction.triggered.connect(self.auditRequested.emit)
 
         self.aScanPlot.customContextMenuRequested.connect(self._showPlotContextMenu)
         self.defectTableWidget.customContextMenuRequested.connect(self._showDefectTableContextMenu)

@@ -54,6 +54,26 @@
 - **界面布局记忆**：窗口位置、大小、Dock布局自动保存/恢复
 - **快捷键帮助**：F1键显示所有快捷键一览表
 
+### 1.7 数据追溯与回放（新增）
+
+- **会话持久化**：SQLite 保存检测会话、缺陷、报告和波形分块索引
+- **完整回放**：支持会话选择、逐帧、倍速、跳转和截图还原
+- **PDF 报告**：HTML/PDF 使用同一模板，报告内容包含 SHA-256 哈希
+
+### 1.8 高级 UT 分析（新增）
+
+- **多闸门**：Gate A/B/C 独立启停、门限和触发状态
+- **TCG**：分段距离-增益补偿，支持表格录入和波形补偿
+- **B/C-Scan**：B-Scan 历史成像、C-Scan 光栅位置成像
+- **采集适配**：仿真、回放、伪硬件和厂商适配器统一接口
+
+### 1.9 本地权限与审计（新增）
+
+- **本地用户**：管理员、工程师、操作员、查看者四种角色
+- **密码安全**：PBKDF2-HMAC-SHA256 加盐存储和失败锁定
+- **审计链**：前序哈希链可检测历史记录篡改
+- **报告签名**：记录签署用户、时间和报告文件哈希
+
 ## 2. 环境与启动
 
 ### 2.1 依赖环境
@@ -72,6 +92,9 @@ pip install -r requirements.txt
 ```bash
 python main.py
 ```
+
+首次启动时创建本地管理员账户；后续启动输入用户名和密码。数据默认保存在
+`data/` 目录，包括 `ut_analyst.db` 和会话波形分块。
 
 ## 3. 软件使用说明书（软著模板）
 
@@ -239,22 +262,33 @@ TEXMFVAR=/tmp/texmf-var TEXMFHOME=/tmp/texmf-home xelatex main.tex
 ```text
 app/
   model/
+    acquisition.py             # 采集源协议、仿真/回放/伪硬件适配器
+    gate_analyzer.py           # Gate A/B/C 分析
+    scan_geometry.py           # B/C-Scan 坐标和矩阵
+    session_repository.py      # SQLite 会话与波形分块仓库
     signal_generator.py        # 信号仿真引擎
     signal_processor.py        # 信号处理模块（FFT、滤波、平均）
+    tcg.py                     # TCG 时间增益补偿
     ultrasonic_model.py        # 参数管理、帧数据生成、校准参数
     defect_analyzer.py         # 缺陷统计分析模块
   view/
+    advanced_ut_panel.py       # 多闸门和 TCG 控件
+    login_dialog.py            # 首次初始化和用户登录
     main_window.py             # 主界面、交互信号、图形显示
     report_preview_window.py   # 报告预览窗口
+    replay_panel.py            # 会话回放控件
+    scan_panel.py              # B/C-Scan 显示
     fft_panel.py               # 频谱分析面板
     statistics_panel.py        # 缺陷统计面板
   controller/
     main_controller.py         # 采集流程、判定、报告、校准
   common/
+    auth.py                    # 本地用户、角色、审计和报告签名
     unit_converter.py          # 单位换算工具
     logging_config.py          # 日志配置
     theme.py                   # 主题样式
     report_generator.py        # 报告生成器
+    report_exporter.py         # HTML/PDF 导出与哈希
     shortcut_manager.py        # 快捷键管理器
     layout_manager.py          # 布局管理器
 main.py                        # 应用入口
@@ -262,7 +296,7 @@ main.py                        # 应用入口
 
 ## 8. 注意事项
 
-- 本项目为仿真框架，当前未接入真实采集硬件。
+- 本项目默认运行仿真源；厂商硬件需基于统一采集接口补充具体 SDK 适配器。
 - 报告判定规则：出现缺陷记录或当前帧触发即判定 `不合格`。
 - 如果发现界面“无变化”，先检查：
   - 是否处于 `冻结` 状态

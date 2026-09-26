@@ -90,6 +90,8 @@ class ReportGenerator:
         defect_records: list[dict[str, Any]],
         defect_snapshots: list[dict[str, Any]],
         parameters: dict[str, Any] | None = None,
+        signed_by: str | None = None,
+        signed_at: str | None = None,
     ) -> str:
         """
         生成HTML格式检测报告。
@@ -243,6 +245,7 @@ class ReportGenerator:
     </table>
     {personnel_html}
     {parameters_html}
+    {f'<p style="color:#2c3e50;"><strong>报告签名：</strong>{signed_by} | {signed_at}</p>' if signed_by else ''}
     <div class="decision">判定结果：{decision_result}</div>
 
     <h3>波形总览</h3>

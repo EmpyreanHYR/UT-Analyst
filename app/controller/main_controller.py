@@ -16,6 +16,7 @@ from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import QFileDialog, QInputDialog, QMessageBox
 
 from app.common.unit_converter import time_us_to_depth_mm
+from app.common.auth import AuthService, Role, User, has_permission
 from app.common.report_generator import ReportGenerator, ReportConfig
 from app.common.report_exporter import ReportExporter
 from app.model.ultrasonic_model import UltrasonicSignalModel
@@ -26,6 +27,7 @@ from app.model.scan_geometry import ScanGrid
 from app.model.session_repository import FrameChunkStore, SessionRepository
 from app.model.tcg import TcgPoint, TcgProfile
 from app.view.main_window import MainWindow
+from app.view.audit_dialog import AuditDialog
 from app.view.report_config_dialog import ReportConfigDialog
 from app.view.report_preview_window import ReportPreviewWindow
 
@@ -52,6 +54,8 @@ class MainController(QObject):
         data_dir: str | Path | None = None,
         acquisition_source: AcquisitionSource | None = None,
         use_worker: bool = True,
+        auth_service: AuthService | None = None,
+        current_user: User | None = None,
     ) -> None:
         super().__init__()
         self.model = model
@@ -132,6 +136,8 @@ class MainController(QObject):
         self.useWorker = bool(use_worker)
         self.acquisitionThread: QThread | None = None
         self.acquisitionWorker: AcquisitionWorker | None = None
+        self.authService = auth_service
+        self.currentUser = current_user or User(0, "local", Role.ADMIN)
 
         self._bindSignals()
         self._initializeView()
@@ -177,6 +183,7 @@ class MainController(QObject):
         self.view.replayPanel.frameChanged.connect(self.loadReplayFrame)
         self.view.advancedUTPanel.gateChanged.connect(self.updateAdvancedGate)
         self.view.advancedUTPanel.tcgChanged.connect(self.updateTcgProfile)
+        self.view.auditRequested.connect(self.showAuditLog)
 
         # 统计分析面板信号连接
         self.view.statisticsPanel.refreshRequested.connect(self.refreshDefectStatistics)
@@ -203,6 +210,8 @@ class MainController(QObject):
 
     def startAcquisition(self) -> None:
         """启动实时采集。"""
+        if not self._require_permission("acquire"):
+            return
         if self._isAcquisitionRunning():
             self.view.showStatusMessage("采集已在运行。")
             return
@@ -254,6 +263,8 @@ class MainController(QObject):
 
     def singleShotAcquisition(self) -> None:
         """执行一次单帧采样。"""
+        if not self._require_permission("acquire"):
+            return
         if self._isAcquisitionRunning():
             self.view.showStatusMessage("实时采集运行中，无法执行单次采样。", isWarning=True)
             return
@@ -346,6 +357,8 @@ class MainController(QObject):
 
     def startRecording(self) -> None:
         """开启缺陷记录（仅对历史表格写入生效）。"""
+        if not self._require_permission("acquire"):
+            return
         if not self._isAcquisitionRunning():
             self.view.showStatusMessage("请先开始检测，再开启记录。", durationMs=1800, isWarning=True)
             return
@@ -365,6 +378,8 @@ class MainController(QObject):
 
     def applyParameters(self, parameters: dict[str, float]) -> None:
         """应用用户在界面中设置的参数。"""
+        if not self._require_permission("configure"):
+            return
         parametersToApply = dict(parameters)
         refreshIntervalMs = int(
             np.clip(
@@ -420,6 +435,16 @@ class MainController(QObject):
                 timestamp=recordData["detectedAt"],
                 snapshot_uri=captureDataUri,
             )
+            self._audit(
+                "defect.add",
+                "defect",
+                str(recordUid),
+                {
+                    "session_id": self.activeSessionId,
+                    "depth_mm": recordData["depthMm"],
+                    "amplitude": recordData["amplitude"],
+                },
+            )
 
         # 自动刷新统计面板（如果可见）
         if self.view.statisticsDockWidget.isVisible():
@@ -427,6 +452,8 @@ class MainController(QObject):
 
     def _onDefectRecordsDeleted(self, deletedUids: object) -> None:
         """同步删除被用户从表格中移除的缺陷截图记录。"""
+        if not self._require_permission("delete_records"):
+            return
         if not isinstance(deletedUids, list) or not deletedUids:
             return
         deletedSet = {int(uid) for uid in deletedUids}
@@ -435,10 +462,23 @@ class MainController(QObject):
             for existingRecord in self.loggedDefectSnapshots
             if int(existingRecord.get("recordUid", -1)) not in deletedSet
         ]
+        self._audit(
+            "defect.delete",
+            "defect",
+            ",".join(str(uid) for uid in sorted(deletedSet)),
+            {"session_id": self.activeSessionId},
+        )
 
     def _onDefectRecordsCleared(self) -> None:
         """同步清空全部缺陷截图记录。"""
+        if not self._require_permission("delete_records"):
+            return
         self.loggedDefectSnapshots.clear()
+        self._audit(
+            "defect.clear",
+            "session",
+            self.activeSessionId or "",
+        )
 
     def calibrateVelocity(self) -> None:
         """根据已知厚度与实测传播时间校准声速。"""
@@ -708,6 +748,8 @@ class MainController(QObject):
         3. 弹出预览窗口；
         4. 在预览窗口内点击“保存报告”后导出 HTML。
         """
+        if not self._require_permission("edit_report"):
+            return
         self.view.showStatusMessage("正在生成报告预览...", 1200)
         try:
             if not self._ensureLatestFrameAvailable():
@@ -768,6 +810,8 @@ class MainController(QObject):
 
     def saveCurrentReport(self) -> None:
         """将当前报告导出为 HTML。"""
+        if not self._require_permission("edit_report"):
+            return
         if not self.currentReportHtmlTemplate:
             self.view.showStatusMessage("报告内容为空，无法保存。", isWarning=True)
             return
@@ -803,12 +847,27 @@ class MainController(QObject):
 
             session_id = self.activeSessionId or self.lastSessionId
             if session_id:
-                self.sessionRepository.add_report(
-                    session_id,
-                    report_format,
-                    outputPath,
-                    report_hash,
-                )
+                if self.authService is not None and self.currentUser.id > 0:
+                    self.authService.sign_report(
+                        session_id=session_id,
+                        report_format=report_format,
+                        report_path=outputPath,
+                        sha256=report_hash,
+                        user_id=self.currentUser.id,
+                    )
+                else:
+                    self.sessionRepository.add_report(
+                        session_id,
+                        report_format,
+                        outputPath,
+                        report_hash,
+                    )
+                    self._audit(
+                        "report.export",
+                        "report",
+                        str(outputPath),
+                        {"format": report_format, "sha256": report_hash},
+                    )
 
             self.view.showStatusMessage(f"报告保存成功：{outputPath.name}")
             logger.info("报告已保存：%s", outputPath)
@@ -825,6 +884,48 @@ class MainController(QObject):
         return self.acquisitionTimer.isActive() or bool(
             self.acquisitionThread and self.acquisitionThread.isRunning()
         )
+
+    def _require_permission(self, permission: str) -> bool:
+        """Check the current user's permission and report denial."""
+        if has_permission(self.currentUser.role, permission):
+            return True
+        self.view.showStatusMessage(
+            f"当前角色无权执行操作：{permission}",
+            durationMs=3000,
+            isWarning=True,
+        )
+        return False
+
+    def _audit(
+        self,
+        action: str,
+        entity_type: str,
+        entity_id: str,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        """Append an audit event when authentication is enabled."""
+        if self.authService is None:
+            return
+        try:
+            self.authService.record_audit(
+                self.currentUser.id,
+                action,
+                entity_type,
+                entity_id,
+                details,
+            )
+        except Exception as error:
+            logger.error("审计事件写入失败：%s", error, exc_info=True)
+
+    def showAuditLog(self) -> None:
+        """Open the local audit viewer."""
+        if self.authService is None:
+            self.view.showStatusMessage("当前未启用本地审计。", isWarning=True)
+            return
+        if not self._require_permission("view_audit"):
+            return
+        dialog = AuditDialog(self.authService, self.view)
+        dialog.exec_()
 
     def _acquire_frame_dict(self) -> dict[str, Any] | None:
         """Read one frame through the configured acquisition source."""
@@ -1343,6 +1444,12 @@ class MainController(QObject):
             standard_key=self.reportConfig.standard_key,
         )
         self.lastSessionId = self.activeSessionId
+        self._audit(
+            "session.start",
+            "session",
+            self.activeSessionId,
+            {"workpiece": self.reportConfig.workpiece_name},
+        )
         return True
 
     def _finishActiveSession(self) -> None:
@@ -1353,6 +1460,12 @@ class MainController(QObject):
         self.frameChunkStore.flush_session(session_id)
         decision = "不合格" if self.loggedDefectSnapshots else "合格"
         self.sessionRepository.finish_session(session_id, decision=decision)
+        self._audit(
+            "session.stop",
+            "session",
+            session_id,
+            {"decision": decision},
+        )
         self.lastSessionId = session_id
         self.activeSessionId = None
         self.refreshReplaySessions()
@@ -1446,6 +1559,8 @@ class MainController(QObject):
             self.stopAcquisition()
         self._finishActiveSession()
         self.sessionRepository.close()
+        if self.authService is not None:
+            self.authService.close()
 
     def updateAdvancedGate(self, gate_data: dict[str, Any]) -> None:
         """Update Gate B/C configuration from the advanced panel."""

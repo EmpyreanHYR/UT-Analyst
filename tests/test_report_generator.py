@@ -140,6 +140,22 @@ class TestReportGeneratorBasic:
 
         assert "报告内容哈希" in html
 
+    def test_generate_html_report_includes_signature(self) -> None:
+        """签名信息应写入报告正文。"""
+        html = self.generator.generate_html_report(
+            config=ReportConfig(workpiece_name="签名测试"),
+            detection_time="2024-01-01 10:00:00",
+            decision_result="合格",
+            overview_image_data_uri="",
+            defect_records=[],
+            defect_snapshots=[],
+            signed_by="engineer",
+            signed_at="2024-01-01 10:05:00",
+        )
+
+        assert "engineer" in html
+        assert "2024-01-01 10:05:00" in html
+
     def test_generate_html_report_with_notes(self) -> None:
         """应能生成包含备注的HTML报告。"""
         config = ReportConfig(
