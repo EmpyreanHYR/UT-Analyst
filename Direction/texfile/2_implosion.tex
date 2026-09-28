@@ -16,7 +16,7 @@
 
 % 插入图：首次初始化与登录界面
 \begin{figure}[htbp]
-	\centering
+\centering
 	\includegraphics[width=0.56\textwidth]{image/login_dialog.png}
 	\caption{首次运行创建管理员账户}
 	\label{fig:login_dialog}
@@ -30,14 +30,13 @@
 
 \begin{figure}[htbp]
 	\centering
-	\includegraphics[width=0.95\linewidth]{image/ui_main.png}
+	\includegraphics[width=0.8\linewidth]{image/ui_main.png}
 	\caption{主界面整体布局}
 	\label{fig:ui_main}
 \end{figure}
-
-\begin{figure}[htbp]
+\begin{figure}[h]
 	\centering
-	\includegraphics[width=0.95\linewidth]{image/fft_panel.png}
+	\includegraphics[width=0.9\linewidth]{image/fft_panel.png}
 	\caption{频谱分析面板}
 	\label{fig:fft_panel}
 \end{figure}
@@ -145,7 +144,7 @@
 
 \begin{figure}[htbp]
 	\centering
-	\includegraphics[width=0.95\linewidth]{image/gate_lines.png}
+	\includegraphics[width=0.9\linewidth]{image/gate_lines.png}
 	\caption{Gate A 的起点、终点和门限}
 	\label{fig:gate_lines}
 \end{figure}
@@ -163,7 +162,7 @@
 
 \begin{figure}[htbp]
 	\centering
-	\includegraphics[width=0.95\linewidth]{image/cursor_ab.png}
+	\includegraphics[width=0.9\linewidth]{image/cursor_ab.png}
 	\caption{A/B 游标与差值读数}
 	\label{fig:cursor_ab}
 \end{figure}
@@ -279,17 +278,23 @@ B-Scan 的连续回波变化如\cref{fig:bscan_panel}所示，C-Scan 的幅值�
 
 \begin{figure}[htbp]
 	\centering
-	\includegraphics[width=0.95\textwidth]{image/bscan_panel.png}
-	\caption{B-Scan 显示三个扫描位置的连续回波带}
-	\label{fig:bscan_panel}
+	% 左图
+	\begin{minipage}{0.47\textwidth}
+		\centering
+		\includegraphics[width=\linewidth]{image/bscan_panel.png}
+		\caption{B‑Scan 显示三个扫描位置的连续回波带}
+		\label{fig:bscan_panel}
+	\end{minipage}
+	\hfill % 水平填充，隔开两张图
+	% 右图
+	\begin{minipage}{0.47\textwidth}
+		\centering
+		\includegraphics[width=\linewidth]{image/cscan_panel.png}
+		\caption{C‑Scan 显示光栅扫描区域的三个回波位置}
+		\label{fig:cscan_panel}
+	\end{minipage}
 \end{figure}
 
-\begin{figure}[htbp]
-	\centering
-	\includegraphics[width=0.95\textwidth]{image/cscan_panel.png}
-	\caption{C-Scan 显示光栅扫描区域的三个回波位置}
-	\label{fig:cscan_panel}
-\end{figure}
 
 \subsection{报告生成与判定}
 \par

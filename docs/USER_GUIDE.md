@@ -2,33 +2,53 @@
 
 ## Startup and Login
 
-Create the first administrator on the first launch. Later launches require a
-local account. Roles are administrator, engineer, operator, and viewer.
+The system creates the first administrator on first launch. Subsequent launches
+use local accounts managed by the administrator. The system provides
+administrator, engineer, operator, and viewer roles, with role-based access to
+detection, configuration, record management, report editing, user management,
+and audit functions.
 
 ## Detection
 
-1. Configure probe, gain, range, gate A, and optional Gate B/C settings.
-2. Enable TCG and enter depth/gain points when compensation is required.
+1. Configure the probe, gain, range, Gate A, and independent Gate B/C settings.
+2. Build TCG depth/gain profiles for amplitude compensation.
 3. Start live acquisition or perform a single-shot acquisition.
-4. Enable defect recording before collecting traceable defect records.
+4. Enable defect recording to collect traceable depth, amplitude, time, and
+   waveform-snapshot records.
+5. Review gate peaks, cursor measurements, defect statistics, and B/C-Scan
+   imagery in the analysis panels.
 
-Live acquisition runs on a worker thread. The interface only renders and saves
-the frames delivered by the acquisition source.
+Live acquisition runs on a worker thread. Acquisition frames and processing
+metadata are written to the session store for later replay and analysis.
 
 ## Replay
 
-Open `View -> Data Replay`, select a saved session, and choose a frame. Playback
-supports speed selection and previous/next navigation. The original waveform is
-stored independently from filtering and TCG processing.
+Open `View -> Data Replay`, select a session, and navigate through stored
+frames. Playback supports previous/next navigation, slider positioning, speed
+selection, and loop playback. Saved base waveforms remain available for
+reprocessing with filtering and TCG settings. Valid session chunks are retained
+when other chunks require recovery.
 
 ## Reports
 
 Create a report from the current frame and fill in the standard, workpiece,
-company, project, personnel, location, and notes fields. HTML and PDF use the
-same report content. Exporting a report records its SHA-256 hash and signs it
-with the active user.
+company, project, personnel, location, and notes fields. HTML and PDF reports
+share the same content and include the detection summary, waveform overview,
+defect snapshots, report hash, and signer information. The database records the
+final file SHA-256, report format, path, signing user, signing time, and
+signature.
 
 ## Audit
 
-Session start/stop, defect changes, and report signatures create audit events.
-The audit chain verification detects changes to historical events.
+Session start/stop, defect changes, report export, and report signatures create
+audit events linked by a previous-hash chain. The audit viewer displays the
+event history and verifies that historical records have not been altered.
+
+## Advanced Features
+
+- Gate A/B/C support independent enablement, position, width, threshold, and
+  visual state.
+- B/C-Scan provides raster position mapping, grid imaging, and amplitude
+  distribution views.
+- User administration supports local account creation and role assignment.
+- Report and audit records preserve the active user identity for traceability.
