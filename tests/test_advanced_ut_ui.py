@@ -33,5 +33,5 @@ def test_scan_panel_accepts_b_and_c_scan_images(qapp) -> None:
     panel.update_b_scan(b_scan)
     panel.update_c_scan(c_scan)
 
-    assert panel.b_scan_image.image.shape == b_scan.shape
+    assert panel.b_scan_image.image.shape == b_scan.T.shape
     assert panel.c_scan_image.image.shape == c_scan.shape

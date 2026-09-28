@@ -302,3 +302,15 @@ main.py                        # 应用入口
   - 是否处于 `冻结` 状态
   - 触发模式是否设置为 `闸门触发` 且当前未触发
   - 是否点击了 `开始检测`
+
+## 9. 说明书截图维护
+
+在可运行 PyQt5 与 PyQtGraph 的环境中执行以下命令，可自动生成登录、参数面板、频谱、统计、多闸门/TCG、B/C-Scan、回放、报告和审计截图：
+
+```powershell
+$env:QT_QPA_PLATFORM = "windows"
+$env:QT_OPENGL = "software"
+python scripts/generate_manual_screenshots.py
+```
+
+生成结果写入 `Direction/image/`，随后在 `Direction` 目录执行两次 `xelatex main.tex` 更新说明书 PDF。

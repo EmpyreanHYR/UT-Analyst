@@ -16,8 +16,8 @@ class ScanPanel(QWidget):
         self.tabs = QTabWidget()
 
         self.b_scan_widget = pg.PlotWidget(title="B-Scan")
-        self.b_scan_widget.setLabel("left", "扫描位置")
-        self.b_scan_widget.setLabel("bottom", "深度/时间")
+        self.b_scan_widget.setLabel("left", "深度/时间")
+        self.b_scan_widget.setLabel("bottom", "扫描位置")
         self.b_scan_image = pg.ImageItem()
         self.b_scan_widget.addItem(self.b_scan_image)
 
@@ -32,9 +32,12 @@ class ScanPanel(QWidget):
         layout.addWidget(self.tabs)
 
     def update_b_scan(self, matrix: np.ndarray) -> None:
-        image = np.asarray(matrix, dtype=np.float32)
+        source = np.asarray(matrix, dtype=np.float32)
+        image = source.T
         self.b_scan_image.setImage(image, autoLevels=False, levels=(0.0, 1.2))
+        self.b_scan_image.setRect(0.0, 0.0, source.shape[0], source.shape[1])
 
     def update_c_scan(self, matrix: np.ndarray) -> None:
         image = np.asarray(matrix, dtype=np.float32)
         self.c_scan_image.setImage(image, autoLevels=False, levels=(0.0, 1.2))
+        self.c_scan_image.setRect(0.0, 0.0, image.shape[1], image.shape[0])

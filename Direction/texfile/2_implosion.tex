@@ -11,20 +11,22 @@
 \texttt{pip install -r requirements.txt} 安装运行依赖，再执行 \texttt{python main.py} 启动程序。首次启动界面要求建立本地管理员账号，用户名和密码确认后进入主界面；后续启动使用管理员、工程师、操作员或查看者账号登录。密码使用 PBKDF2-HMAC-SHA256 加盐存储，连续输错达到设定次数后账号临时锁定。
 \par
 软件将运行数据保存在 \texttt{data} 目录。检测会话、用户、缺陷、报告和审计元数据写入 \texttt{ut\_analyst.db}，完整波形按会话写入 \texttt{data/sessions} 下的 NPZ 分块文件。移动软件或升级版本前，应整体备份 \texttt{data} 目录。
+\par
+首次运行时的账户创建界面如\cref{fig:login_dialog}所示。
 
-% 插入图：系统启动界面
+% 插入图：首次初始化与登录界面
 \begin{figure}[htbp]
 	\centering
-	\includegraphics[width=0.8\textwidth]{image/xitong.png}
-	\caption{系统启动后的状态栏与连接信息}
-	\label{fig:system_startup}
+	\includegraphics[width=0.56\textwidth]{image/login_dialog.png}
+	\caption{首次运行创建管理员账户}
+	\label{fig:login_dialog}
 \end{figure}
 
 \subsection{主界面组成与布局}
 \par
 主界面由菜单栏、工具栏、A-Scan 波形区、右侧控制面板、缺陷表格和若干可停靠分析面板组成。菜单栏提供文件、设置、视图和帮助入口；工具栏集中放置打开、保存、开始检测、停止检测、冻结、单次采样和生成报告。波形区显示原始信号、包络、参考波形和峰值保持轨迹，闸门线、门限线和 A/B 游标可直接拖动。右侧控制面板用于输入检测参数、查看定量结果和执行校准；底部缺陷表格第一行为实时行，其余行为已保存的缺陷记录。
 \par
-“视图”菜单可显示或隐藏频谱分析、缺陷统计、数据回放、多闸门与 TCG、B/C-Scan 等面板。各面板的位置和窗口大小在关闭时自动保存，下次启动恢复。主界面布局如图~\ref{fig:ui_main} 所示，频谱与统计面板分别见图~\ref{fig:fft_panel} 和图~\ref{fig:statistics_panel}。
+“视图”菜单可显示或隐藏频谱分析、缺陷统计、数据回放、多闸门与 TCG、B/C-Scan 等面板。各面板的位置和窗口大小在关闭时自动保存，下次启动恢复。主界面布局如\cref{fig:ui_main}所示，频谱与统计面板分别见\cref{fig:fft_panel}和\cref{fig:statistics_panel}。
 
 \begin{figure}[htbp]
 	\centering
@@ -42,7 +44,7 @@
 
 \begin{figure}[htbp]
 	\centering
-	\includegraphics[width=0.95\linewidth]{image/statistics_panel.png}
+	\includegraphics[width=0.96\linewidth]{image/statistics_panel.png}
 	\caption{缺陷统计与 DAC 曲线面板}
 	\label{fig:statistics_panel}
 \end{figure}
@@ -62,7 +64,9 @@
 
 \subsection{检测参数设置}
 \par
-参数修改后点击“应用参数”使其生效。增益用于补偿材料衰减、耦合损失和探头灵敏度差异，调整时应保证参考回波具有足够信噪比，同时避免始波、底波或缺陷波出现削顶。声程决定横轴显示的最大往返声程，设置过小会截断深部回波，设置过大则降低有效显示分辨率。探头频率与试块、材料和缺陷尺寸匹配；刷新间隔用于控制界面更新速度，扫查速度较快时使用较小间隔，精读波形时使用较大间隔或冻结。常用参数范围见表~\ref{tab:detection_parameters}。
+参数修改后点击“应用参数”使其生效。增益用于补偿材料衰减、耦合损失和探头灵敏度差异，调整时应保证参考回波具有足够信噪比，同时避免始波、底波或缺陷波出现削顶。声程决定横轴显示的最大往返声程，设置过小会截断深部回波，设置过大则降低有效显示分辨率。探头频率与试块、材料和缺陷尺寸匹配；刷新间隔用于控制界面更新速度，扫查速度较快时使用较小间隔，精读波形时使用较大间隔或冻结。常用参数范围见\cref{tab:detection_parameters}。
+\par
+控制面板的完整布局如\cref{fig:control_panel}所示，上半部分用于参数和采集控制，下半部分用于闸门、定量结果、游标和校准参数。
 
 \begin{table}[htbp]
 	\centering
@@ -82,6 +86,13 @@
 	\end{tabular}
 \end{table}
 
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.97\textwidth]{image/control_panel.png}
+	\caption{检测参数、采集控制、闸门、定量和游标读数面板}
+	\label{fig:control_panel}
+\end{figure}
+
 \subsection{声速、零点与深度计算}
 \par
 声速校准使用已知厚度试块。声波完成一次往返传播，因此声速由厚度和往返时间计算：
@@ -94,7 +105,7 @@
 \begin{equation}
 	t_0=t-\frac{2h}{v}.
 \end{equation}
-校准后任意回波深度按式~\eqref{eq:depth_measurement} 计算：
+校准后任意回波深度按\cref{eq:depth_measurement}计算：
 \begin{equation}
 	d=\frac{v(t-t_0)}{2}.
 	\label{eq:depth_measurement}
@@ -106,6 +117,15 @@
 点击“开始检测”后，程序在后台采集线程中持续读取帧数据，主界面只负责显示、判定和保存，避免长时间采集阻塞窗口操作。点击“停止检测”结束当前会话并写入数据库；冻结用于暂时停止显示更新，便于观察某一帧；单次采样用于在停止或冻结状态下主动获取一帧。自动触发模式按刷新周期连续更新，门触发模式只在闸门峰值达到门限时更新显示。
 \par
 峰值保持曲线保存各采样位置的包络上界，适合观察扫查过程中回波幅值的变化。参考波形用于比较校准前后、不同位置或不同探头的结果。捕获参考后，当前波形与参考包络叠放显示；通过“提取信号特征”可查看均值、标准差、RMS、峰峰值、过零率、能量和峰值位置，通过“与参考波形对比”可计算均值差、最大差、RMS 差和相关系数。
+\par
+波形、频谱和缺陷统计面板同时展开时的界面如\cref{fig:workspace_analysis}所示。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.98\textwidth]{image/workspace_analysis.png}
+	\caption{波形、频谱和缺陷统计面板同步显示的检测工作区}
+	\label{fig:workspace_analysis}
+\end{figure}
 
 \subsection{Gate A/B/C 与缺陷判定}
 \par
@@ -120,6 +140,8 @@
 时，判定该闸门触发，其中 $L$ 为门限。Gate A 用于主检测窗口，Gate B 和 Gate C 可设置在第二、第三层深范围内，分别记录不同区域的回波。每个闸门可独立启用、设置起点、宽度、门限和颜色，面板同步显示峰值幅值与触发状态。
 \par
 现场设置时，先依据工艺卡将 Gate A 起点放在始波之后、终点放在底波之前；对于多层结构，再用 Gate B 和 Gate C 划分第二层和第三层界面。门限一般设置在噪声上沿之上、参考回波之下。边移动探头边观察闸门状态，当触发状态稳定且峰值重复出现时，再开启缺陷记录。
+\par
+闸门起止线和门限在 A-Scan 上的位置如\cref{fig:gate_lines}所示。
 
 \begin{figure}[htbp]
 	\centering
@@ -136,6 +158,8 @@
 	\Delta d=\frac{v\Delta t}{2}.
 \end{equation}
 测量缺陷长度或相邻界面间距时，先将游标 A 放在第一个回波峰值，再将游标 B 放在第二个回波峰值，右侧面板会同步显示两游标读数、$\Delta t$ 和 $\Delta d$。切换显示单位只改变界面读数，不改变底层采样数据。游标标签可固定在绘图区上方，避免覆盖回波细节。
+\par
+游标线与差值读数的对应关系如\cref{fig:cursor_ab}所示。
 
 \begin{figure}[htbp]
 	\centering
@@ -148,6 +172,8 @@
 \subsection{缺陷记录与表格管理}
 \par
 缺陷记录采用手动开启方式。点击“开始记录”后，闸门触发事件按编号、深度、波幅和检测时间写入历史表格，同时保存当前波形截图。未开始记录时，表格实时行仍显示当前峰值，但不会写入历史。表格右键菜单提供删除选中记录、清空历史和重编号操作；实时行不参与删除，历史行可使用 Delete 键删除。删除和清空操作会写入审计日志。
+\par
+历史缺陷、实时行和右键菜单如\cref{fig:defect_table_menu}所示。
 
 \begin{figure}[htbp]
 	\centering
@@ -161,6 +187,15 @@
 “保存”将当前帧参数和时间、原始信号、包络数组导出为 JSON 或 CSV。JSON 适合完整重建，CSV 适合使用电子表格或第三方软件分析。“打开”可重新载入单帧波形和参数。实时检测启动后，程序自动建立检测会话，将每一帧的原始波形和处理元数据写入分块文件；会话元数据包括开始与结束时间、工件名称、检测标准、参数、判定结论和缺陷索引。
 \par
 打开“数据回放”面板后，先刷新会话列表，再选择需要复盘的会话。回放控制支持逐帧前后移动、拖动帧滑块、0.5$\sim$4 倍速播放和首尾循环。检测过程中已保存的原始波形不受滤波和 TCG 显示状态影响，因此回放时可重新应用不同处理参数。若会话文件损坏或分块缺失，程序给出明确错误并保留其余可读取数据。
+\par
+会话选择、帧滑块和播放控制如\cref{fig:replay_panel}所示。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.92\textwidth]{image/replay_panel.png}
+	\caption{检测会话选择、帧定位和倍速回放控制}
+	\label{fig:replay_panel}
+\end{figure}
 
 \subsection{FFT 频谱分析}
 \par
@@ -222,6 +257,15 @@ TCG 用于补偿声程增加带来的幅值下降，使不同深度的相同尺�
 	x_{\mathrm{TCG}}(t)=x(t)10^{G(d(t))/20}.
 \end{equation}
 在“多闸门与 TCG”面板中输入深度和增益点，勾选“启用TCG”并点击“应用TCG”。原始波形、TCG 补偿波形和滤波基础数据分别保存，关闭 TCG 后可立即恢复原始视图。制作 TCG 时应使用相同探头、相同耦合条件和规定反射体，校准点应覆盖实际检测深度范围。
+\par
+Gate A/B/C 的触发状态和 TCG 深度增益点如\cref{fig:advanced_ut_panel}所示。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.77\textwidth]{image/advanced_ut_panel.png}
+	\caption{Gate A/B/C 触发状态与 TCG 深度增益点}
+	\label{fig:advanced_ut_panel}
+\end{figure}
 
 \subsection{B-Scan 与 C-Scan}
 \par
@@ -230,12 +274,37 @@ B-Scan 将每一帧包络按扫描位置顺序排列，形成时间-位置二维
 	x=j\Delta x,\qquad y=i\Delta y.
 \end{equation}
 程序将每个位置的闸门峰值写入对应网格，构建 C-Scan 幅值分布。实际操作时，先在工件上画出行列标记，沿同一方向逐线扫查，保持探头取向和移动速度一致；完成后在 C-Scan 中观察高幅值区域，再回到对应坐标复核 A-Scan 波形。
+\par
+B-Scan 的连续回波变化如\cref{fig:bscan_panel}所示，C-Scan 的幅值分布如\cref{fig:cscan_panel}所示。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.95\textwidth]{image/bscan_panel.png}
+	\caption{B-Scan 显示三个扫描位置的连续回波带}
+	\label{fig:bscan_panel}
+\end{figure}
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.95\textwidth]{image/cscan_panel.png}
+	\caption{C-Scan 显示光栅扫描区域的三个回波位置}
+	\label{fig:cscan_panel}
+\end{figure}
 
 \subsection{报告生成与判定}
 \par
 点击“生成报告”后填写检测标准、工件名称、公司、项目、操作人员、审核人员、检测地点和备注。软件自动嵌入检测时间、探头频率、采样率、增益、声速、扫查深度、波形总览和缺陷截图。报告可保存为 HTML 或 PDF，两者使用同一模板，并显示报告内容哈希和当前登录用户的签名信息。
 \par
 报告结论按以下规则形成：当存在已记录缺陷或当前帧闸门触发时，结论为“不合格”；未记录缺陷且当前帧未触发时，结论为“合格”。现场签字前应核对工件编号、标准、人员、参数、缺陷数量和截图是否完整。报告导出后，文件 SHA-256、格式、路径和签署用户写入数据库。
+\par
+报告填写界面如\cref{fig:report_config_dialog}所示，预览窗口和完整报告分别见\cref{fig:report_preview}和\cref{fig:complete_report}。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.69\textwidth]{image/report_config_dialog.png}
+	\caption{报告标准、工件、人员和备注配置}
+	\label{fig:report_config_dialog}
+\end{figure}
 
 \begin{figure}[htbp]
 	\centering
@@ -257,10 +326,19 @@ B-Scan 将每一帧包络按扫描位置顺序排列，形成时间-位置二维
 管理员负责创建用户、分配角色和维护系统设置；工程师可配置检测流程、校准、分析和报告；操作员可执行检测、记录和报告输出；查看者只能浏览已保存数据。登录成功后，当前用户身份随会话保存。检测开始与结束、缺陷写入或删除、报告导出与签名等操作均写入审计事件。
 \par
 审计事件包含时间、用户、动作、实体类型、实体标识、详细信息、前序哈希和当前事件哈希。任意历史事件被修改后，重新计算的哈希与后续链条不一致，审计查看器显示验证失败。报告签名记录用户、时间、报告路径和 SHA-256，可用于确认报告文件未被替换。
+\par
+审计记录和验证结果如\cref{fig:audit_dialog}所示。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.95\textwidth]{image/audit_dialog.png}
+	\caption{用户操作审计记录与审计链验证结果}
+	\label{fig:audit_dialog}
+\end{figure}
 
 \subsection{快捷键}
 \par
-快捷键用于减少频繁切换菜单的操作，主要绑定见表~\ref{tab:shortcuts}。输入框获得焦点时，键盘字符优先输入文本；完成输入后点击波形区，再使用快捷键。
+快捷键用于减少频繁切换菜单的操作，主要绑定见\cref{tab:shortcuts}。输入框获得焦点时，键盘字符优先输入文本；完成输入后点击波形区，再使用快捷键。
 
 \begin{table}[htbp]
 	\centering

@@ -19,7 +19,7 @@
 \par
 本软件面向无损检测人员、质量工程师、检测设备与算法研发人员、高校教师和科研人员。实际检测任务中，操作人员应依据工件材料、焊接工艺、验收标准和检测工艺卡确定探头频率、晶片尺寸、入射角度、耦合方式、扫查范围、扫查速度及验收等级；软件负责将这些条件转化为可执行、可复现的采集与记录流程。
 \par
-软件的适用范围如表~\ref{tab:software_scope} 所示。各功能既可以独立使用，也可以在典型检测流程中连续执行。
+软件的适用范围如\cref{tab:software_scope}所示。各功能既可以独立使用，也可以在典型检测流程中连续执行。
 
 \begin{table}[htbp]
 	\centering
@@ -49,67 +49,57 @@
 \par
 检测会话以 SQLite 保存参数、缺陷、报告和波形分块索引，原始波形按会话写入压缩 NPZ 文件。报告采用同一 HTML 内容输出为网页或 PDF，并记录报告文件 SHA-256。审计事件使用前序哈希链连接，用户、角色、操作时间和报告签名均可追溯。
 
-\subsection{运行环境}
+\subsection{运行基础与术语}
 \par
-软件运行环境如表~\ref{tab:runtime_environment} 所示。开发环境以 Windows 11 为主，程序代码保持 Windows、macOS 和 Linux 兼容。
-
-\begin{table}[htbp]
-	\centering
-	\caption{推荐运行环境}
-	\label{tab:runtime_environment}
-	\begin{tabular}{p{0.22\textwidth}p{0.31\textwidth}p{0.35\textwidth}}
-		\toprule
-		\textbf{项目} & \textbf{推荐配置} & \textbf{说明} \\
-		\midrule
-		操作系统 & Windows 10/11、macOS、Linux & 图形界面需支持 Qt 5。 \\
-		Python & 3.10 及以上 & 使用虚拟环境安装依赖，便于升级和回退。 \\
-		内存 & 8 GB 及以上 & 长会话、较高采样率和 B/C-Scan 显示时建议 16 GB。 \\
-		硬盘 & 10 GB 可用空间 & 波形分块和报告文件按检测会话增长。 \\
-		显示分辨率 & 1366$\times$768 及以上 & 1920$\times$1080 可获得更完整的面板布局。 \\
-		Python 依赖 & PyQt5、PyQtGraph、NumPy、SciPy & 版本要求见 \texttt{requirements.txt}。 \\
-		数据存储 & SQLite 与本地文件系统 & 数据库保存索引和元数据，NPZ 保存波形数组。 \\
-		\bottomrule
-	\end{tabular}
-\end{table}
-
-\subsection{术语与缩略语}
+软件支持 Windows 10/11、macOS 和 Linux，运行环境以 Python 3.10 及以上版本为基础。检测会话、用户、缺陷和报告元数据保存在 SQLite 数据库中，波形数组按会话写入压缩 NPZ 文件。为保证长时间采集、较高采样率和 B/C-Scan 显示稳定，推荐使用 8 GB 以上内存、10 GB 以上可用硬盘空间以及 1366$\times$768 以上显示分辨率。
 \par
-说明书使用的检测参数和测量术语如表~\ref{tab:terminology_measurement} 所示，频谱、补偿和扫描成像术语如表~\ref{tab:terminology_analysis} 所示。正文中的时间、深度、幅值和增益均采用表内单位。
+软件使用的运行配置、检测参数、测量术语和分析概念如\cref{tab:runtime_terms}所示。表中的检测参数直接对应右侧控制面板，术语部分用于统一后续操作说明和报告数据的含义。
 
-\begin{table}[htbp]
-	\centering
-	\caption{检测参数与测量术语}
-	\label{tab:terminology_measurement}
-	\begin{tabular}{p{0.20\textwidth}p{0.30\textwidth}p{0.38\textwidth}}
-		\toprule
-		\textbf{术语} & \textbf{含义} & \textbf{在软件中的体现} \\
-		\midrule
-		A-Scan & A 型显示，以时间为横轴、幅值为纵轴的单通道波形。 & 主波形区显示原始信号与包络。 \\
-		UT & Ultrasonic Testing，超声检测。 & 软件面向的检测领域。 \\
-		增益 & 接收信号的整体放大倍数，单位为 dB。 & 控制回波幅值，不改变传播时间。 \\
-		声程 & 波形窗口对应的最大检测距离，单位为 mm。 & 与声速共同决定时间轴长度。 \\
-		声速 & 超声波在材料中的传播速度，单位为 m/s。 & 用于时间与深度换算。 \\
-		零点延迟 & 探头、楔块和电路引入的固定时间偏移，单位为 $\mu$s。 & 校准浅表缺陷读数。 \\
-		闸门 & 在指定时间或深度范围内检测回波的窗口。 & Gate A/B/C 分别设置起点、宽度和门限。 \\
-		门限 & 触发记录或判定的最小包络幅值。 & 与闸门内峰值比较。 \\
-		游标 & 用于读取任意位置时间、深度和幅值的测量线。 & A/B 两条游标显示差值与距离。 \\
-		\bottomrule
-	\end{tabular}
-\end{table}
+\begin{longtable}{p{0.18\textwidth}p{0.27\textwidth}p{0.43\textwidth}}
+	\caption{运行基础、检测参数与术语}
+	\label{tab:runtime_terms}\\
+	\toprule
+	\textbf{类别} & \textbf{项目或术语} & \textbf{说明} \\
+	\midrule
+	\endfirsthead
 
-\begin{table}[htbp]
-	\centering
-	\caption{分析与成像术语}
-	\label{tab:terminology_analysis}
-	\begin{tabular}{p{0.20\textwidth}p{0.30\textwidth}p{0.38\textwidth}}
-		\toprule
-		\textbf{术语} & \textbf{含义} & \textbf{在软件中的体现} \\
-		\midrule
-		FFT & Fast Fourier Transform，快速傅里叶变换。 & 将时域波形转换为频率谱。 \\
-		DAC & Distance-Amplitude Correction，距离-波幅校正。 & 生成深度-幅值参考曲线。 \\
-		TCG & Time-Corrected Gain，时间增益补偿。 & 按深度分段补偿回波幅值。 \\
-		B-Scan & 以扫描位置为纵轴、时间为横轴的二维波形堆叠图。 & 显示检测过程的时间变化。 \\
-		C-Scan & 以 X/Y 平面位置为坐标的幅值分布图。 & 显示光栅扫描区域的缺陷分布。 \\
-		\bottomrule
-	\end{tabular}
-\end{table}
+	\toprule
+	\textbf{类别} & \textbf{项目或术语} & \textbf{说明} \\
+	\midrule
+	\endhead
+
+	\bottomrule
+	\endlastfoot
+
+	\multicolumn{3}{l}{\textbf{运行环境}} \\
+	\midrule
+	操作系统 & Windows 10/11、macOS、Linux & 图形界面基于 Qt 5，程序代码保持跨平台兼容。 \\
+	Python & 3.10 及以上 & 推荐使用独立虚拟环境安装运行依赖，便于升级和回退。 \\
+	内存 & 8 GB 及以上 & 长会话、较高采样率和 B/C-Scan 显示建议使用 16 GB。 \\
+	硬盘 & 10 GB 可用空间 & 波形分块和报告文件随检测会话数量增长。 \\
+	显示分辨率 & 1366$\times$768 及以上 & 1920$\times$1080 可同时显示更多面板内容。 \\
+	Python 依赖 & PyQt5、PyQtGraph、NumPy、SciPy & 版本要求见项目目录中的 \texttt{requirements.txt}。 \\
+	数据存储 & SQLite 与本地文件系统 & 数据库保存索引和元数据，NPZ 文件保存波形数组。 \\
+	\midrule
+
+	\multicolumn{3}{l}{\textbf{检测参数与测量术语}} \\
+	\midrule
+	A-Scan & A 型显示，以时间为横轴、幅值为纵轴的单通道波形。 & 主波形区显示原始信号与包络。 \\
+	UT & Ultrasonic Testing，超声检测。 & 软件面向的检测领域。 \\
+	增益 & 接收信号的整体放大倍数，单位为 dB。 & 控制回波幅值，不改变传播时间。 \\
+	声程 & 波形窗口对应的最大检测距离，单位为 mm。 & 与声速共同决定时间轴长度。 \\
+	声速 & 超声波在材料中的传播速度，单位为 m/s。 & 用于时间与深度换算。 \\
+	零点延迟 & 探头、楔块和电路引入的固定时间偏移，单位为 $\mu$s。 & 校准浅表缺陷读数。 \\
+	闸门 & 在指定时间或深度范围内检测回波的窗口。 & Gate A/B/C 分别设置起点、宽度和门限。 \\
+	门限 & 触发记录或判定的最小包络幅值。 & 与闸门内峰值比较。 \\
+	游标 & 用于读取任意位置时间、深度和幅值的测量线。 & A/B 两条游标显示差值与距离。 \\
+	\midrule
+
+	\multicolumn{3}{l}{\textbf{分析与成像术语}} \\
+	\midrule
+	FFT & Fast Fourier Transform，快速傅里叶变换。 & 将时域波形转换为频率谱。 \\
+	DAC & Distance-Amplitude Correction，距离-波幅校正。 & 生成深度-幅值参考曲线。 \\
+	TCG & Time-Corrected Gain，时间增益补偿。 & 按深度分段补偿回波幅值。 \\
+	B-Scan & 以扫描位置为纵轴、时间为横轴的二维波形堆叠图。 & 显示检测过程的时间变化。 \\
+	C-Scan & 以 X/Y 平面位置为坐标的幅值分布图。 & 显示光栅扫描区域的缺陷分布。 \\
+\end{longtable}

@@ -73,6 +73,7 @@
 %数组和表格制作
 \usepackage{array}                
 \usepackage{booktabs}
+\usepackage{longtable}
 \usepackage{supertabular}
 \usepackage{multirow}
 \usepackage{abstract}
@@ -162,6 +163,10 @@
 
 % 修订记录的作者（仅处理纯作者列表，换行转逗号）
 \usepackage{xstring}
+\usepackage{cleveref}
+\crefname{table}{表}{表}
+\crefname{figure}{图}{图}
+\crefname{equation}{式}{式}
 \newcommand{\RevisedAuthor}{%
 	\StrSubstitute{\PureAuthors}{\\}{, }% 只替换作者间的换行
 }
