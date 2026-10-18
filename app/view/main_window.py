@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from app.common.unit_converter import depth_mm_to_time_us, time_us_to_depth_mm
 from app.common.layout_manager import LayoutManager
+from app.common.plot_style import create_plot_widget
 from app.common.shortcut_manager import ShortcutManager
+from app.common.theme import ACCENT_COLOR
 from app.view.advanced_ut_panel import AdvancedUTPanel
 from app.view.fft_panel import FFTPanel
 from app.view.replay_panel import ReplayPanel
@@ -272,9 +274,11 @@ class MainWindow(QMainWindow):
         toolBar.setMovable(False)
         toolBar.setIconSize(QSize(24, 24))
         toolBar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        # 工具栏文字用正文色，鼠标悬停时换成强调色，提示当前指向的动作。
         toolBar.setStyleSheet(
-            "QToolButton { color: #dfe8f2; font-weight: 600; padding: 4px 10px; }"
-            "QToolButton:hover { background-color: rgba(90, 120, 148, 80); border-radius: 5px; }"
+            "QToolButton { color: #e6edf5; font-weight: 600; padding: 4px 10px; }"
+            "QToolButton:hover { color: " + ACCENT_COLOR + ";"
+            " background-color: rgba(90, 120, 148, 80); border-radius: 5px; }"
         )
         self.addToolBar(Qt.TopToolBarArea, toolBar)
 
@@ -322,7 +326,7 @@ class MainWindow(QMainWindow):
         splitter = QSplitter(Qt.Vertical, centralWidget)
 
         # A-Scan 绘图区：背景黑色，网格绿色（按需求实现）。
-        self.aScanPlot = pg.PlotWidget(title="A-Scan 波形")
+        self.aScanPlot = create_plot_widget("A-Scan 波形", title_size="12pt")
         self.aScanPlot.setBackground("#000000")
         self.aScanPlot.showGrid(x=True, y=True, alpha=0.35)
         self.aScanPlot.setLabel("left", "幅值")
@@ -609,6 +613,16 @@ class MainWindow(QMainWindow):
         self.dbDifferenceLabel = QLabel("-- dB")
         self.peakPercentLabel = QLabel("-- %")
 
+        # 定量读数是最需要一眼读到的信息，统一挂样式名由主题橙色加粗显示。
+        for valueLabel in (
+            self.depthResultLabel,
+            self.horizontalResultLabel,
+            self.kValueLabel,
+            self.dbDifferenceLabel,
+            self.peakPercentLabel,
+        ):
+            valueLabel.setObjectName("keyValueLabel")
+
         dataPanelLayout.addRow("深度 d", self.depthResultLabel)
         dataPanelLayout.addRow("水平距离 l", self.horizontalResultLabel)
         dataPanelLayout.addRow("K 值", self.kValueLabel)
@@ -627,6 +641,15 @@ class MainWindow(QMainWindow):
         self.cursorDeltaValueLabel = QLabel("--")
         self.cursorDepthDeltaLabel = QLabel("--")
 
+        # 游标读数同样属于关键读数。
+        for valueLabel in (
+            self.cursorAValueLabel,
+            self.cursorBValueLabel,
+            self.cursorDeltaValueLabel,
+            self.cursorDepthDeltaLabel,
+        ):
+            valueLabel.setObjectName("keyValueLabel")
+
         cursorPanelLayout.addRow("游标 A", self.cursorAValueLabel)
         cursorPanelLayout.addRow("游标 B", self.cursorBValueLabel)
         cursorPanelLayout.addRow("差值 Δ", self.cursorDeltaValueLabel)
@@ -639,6 +662,8 @@ class MainWindow(QMainWindow):
         calibrationPanelLayout.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.calibratedVelocityLabel = QLabel("5900 m/s")
         self.calibratedDelayLabel = QLabel("0.00 us")
+        for valueLabel in (self.calibratedVelocityLabel, self.calibratedDelayLabel):
+            valueLabel.setObjectName("keyValueLabel")
         calibrationPanelLayout.addRow("声速", self.calibratedVelocityLabel)
         calibrationPanelLayout.addRow("零点延迟", self.calibratedDelayLabel)
         dockLayout.addWidget(calibrationPanelGroup)

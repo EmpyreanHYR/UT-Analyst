@@ -6,6 +6,8 @@ import numpy as np
 import pyqtgraph as pg
 from PyQt5.QtWidgets import QTabWidget, QVBoxLayout, QWidget
 
+from app.common.plot_style import create_plot_widget
+
 
 class ScanPanel(QWidget):
     """Tabbed B-scan and C-scan image views."""
@@ -15,13 +17,13 @@ class ScanPanel(QWidget):
         layout = QVBoxLayout(self)
         self.tabs = QTabWidget()
 
-        self.b_scan_widget = pg.PlotWidget(title="B-Scan")
+        self.b_scan_widget = create_plot_widget("B-Scan")
         self.b_scan_widget.setLabel("left", "深度/时间")
         self.b_scan_widget.setLabel("bottom", "扫描位置")
         self.b_scan_image = pg.ImageItem()
         self.b_scan_widget.addItem(self.b_scan_image)
 
-        self.c_scan_widget = pg.PlotWidget(title="C-Scan")
+        self.c_scan_widget = create_plot_widget("C-Scan")
         self.c_scan_widget.setLabel("left", "Y (mm)")
         self.c_scan_widget.setLabel("bottom", "X (mm)")
         self.c_scan_image = pg.ImageItem()

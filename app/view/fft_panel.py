@@ -21,6 +21,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from app.common.plot_style import create_plot_widget
+from app.common.theme import BACKGROUND_COLOR
+
 
 class FFTPanel(QWidget):
     """
@@ -55,11 +58,11 @@ class FFTPanel(QWidget):
         layout.setSpacing(8)
 
         # 频谱图显示区域
-        self.fft_plot_widget = pg.PlotWidget(title="频谱分析")
+        self.fft_plot_widget = create_plot_widget("频谱分析")
         self.fft_plot_widget.setLabel('left', '幅值', units='dB')
         self.fft_plot_widget.setLabel('bottom', '频率', units='Hz')
         self.fft_plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        self.fft_plot_widget.setBackground('#0f141a')
+        self.fft_plot_widget.setBackground(BACKGROUND_COLOR)
 
         # 频谱曲线
         self.fft_curve = self.fft_plot_widget.plot(pen='g', width=2)

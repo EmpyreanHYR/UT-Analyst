@@ -1,32 +1,52 @@
-"""应用主题样式定义。"""
+"""应用主题样式定义。
+
+配色约定（深色工业风）：
+
+- 背景：冷灰深色，降低长时间监看带来的视觉疲劳；
+- 正文：偏亮的灰白，保证暗底上的可读性；
+- 强调：橙色，用于分组标题、面板标题、菜单高亮与关键读数，
+  让一屏之内的重要信息先被看到，正文本身保持中性、不抢眼；
+- 语义色：合格/不合格等结论仍用绿、红表示，橙色只承担「提示」含义，
+  不替代告警色，避免混淆。
+
+样式表里通过 $BACKGROUND / $TEXT / $MUTED / $ACCENT / $TABLE_ROW 引用下面的颜色常量，
+调整配色只需要修改这一处；界面代码需要单独取色时也从本模块导入。
+"""
 
 from __future__ import annotations
 
+from string import Template
 
-def buildDarkIndustrialStyleSheet() -> str:
-    """
-    构建深色工业风样式表。
+# 主背景色
+BACKGROUND_COLOR = "#0f141a"
 
-    视觉策略：
-    - 主背景采用冷灰深色，降低长时间监看疲劳；
-    - 关键操作按钮和告警颜色高对比，提升信息识别效率；
-    - 输入控件边框统一细线风格，强调工业软件的秩序感。
-    """
-    return """
+# 正文字色：比纯白柔和，但明显亮于早期的灰蓝色，暗底上更清楚
+TEXT_COLOR = "#e6edf5"
+
+# 次要文字色（状态栏、分隔符、提示语等）
+TEXT_MUTED_COLOR = "#a8b7c6"
+
+# 强调色（橙色）：分组标题、面板标题、菜单高亮与关键读数
+ACCENT_COLOR = "#ffa657"
+
+# 表格隔行底色：比主背景略亮，避免默认的浅色隔行底色在深色主题下把文字吃掉
+TABLE_ROW_COLOR = "#151d26"
+
+_STYLE_SHEET = Template("""
     QMainWindow {
-        background-color: #0f141a;
+        background-color: $BACKGROUND;
     }
 
     QWidget {
-        background-color: #0f141a;
-        color: #d0d7de;
+        background-color: $BACKGROUND;
+        color: $TEXT;
         font-family: "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Source Han Sans SC", sans-serif;
         font-size: 13px;
     }
 
     QStatusBar {
         background-color: #121a22;
-        color: #9fb2c3;
+        color: $MUTED;
         border-top: 1px solid #2a3744;
     }
 
@@ -49,11 +69,18 @@ def buildDarkIndustrialStyleSheet() -> str:
         subcontrol-origin: margin;
         left: 10px;
         padding: 0 4px;
-        color: #9cc9e8;
+        color: $ACCENT;
+        font-weight: 700;
     }
 
     QLabel {
-        color: #cfd8e3;
+        color: $TEXT;
+    }
+
+    /* 关键读数：定量数据、游标读数、统计值等，用橙色加粗与普通说明文字区分 */
+    QLabel#keyValueLabel {
+        color: $ACCENT;
+        font-weight: 700;
     }
 
     QLabel#alarmLabel {
@@ -72,6 +99,36 @@ def buildDarkIndustrialStyleSheet() -> str:
         color: #ff9b8d;
         background-color: rgba(97, 39, 31, 130);
         border: 1px solid #a75446;
+    }
+
+    /* 面板标题栏：与分组标题同样使用橙色，形成统一的层级感。
+       这里只设置文字色；实测给 QDockWidget::title 加边框/内边距会改变标题栏
+       的尺寸计算，窄面板下标题会被提前省略成「…」，所以不额外绘制背景。 */
+    QDockWidget {
+        color: $ACCENT;
+    }
+
+    /* 菜单栏与下拉菜单：平时用正文色，鼠标经过时用橙色提示当前位置 */
+    QMenuBar {
+        background-color: #121a22;
+        color: $TEXT;
+        border-bottom: 1px solid #2a3744;
+    }
+
+    QMenuBar::item:selected {
+        background-color: #1e2c3a;
+        color: $ACCENT;
+    }
+
+    QMenu {
+        background-color: #16202a;
+        color: $TEXT;
+        border: 1px solid #2c3b4a;
+    }
+
+    QMenu::item:selected {
+        background-color: #22384b;
+        color: $ACCENT;
     }
 
     QPushButton {
@@ -128,8 +185,33 @@ def buildDarkIndustrialStyleSheet() -> str:
         background-color: #121c27;
     }
 
+    QTableWidget {
+        background-color: $BACKGROUND;
+        alternate-background-color: $TABLE_ROW;
+        color: $TEXT;
+    }
+
     QSplitter::handle {
         background-color: #283543;
         height: 4px;
     }
+    """)
+
+
+def buildDarkIndustrialStyleSheet() -> str:
     """
+    构建深色工业风样式表。
+
+    视觉策略：
+    - 主背景采用冷灰深色，降低长时间监看疲劳；
+    - 分组标题、面板标题与关键读数使用橙色强调，与正文拉开层次；
+    - 关键操作按钮和告警颜色高对比，提升信息识别效率；
+    - 输入控件边框统一细线风格，强调工业软件的秩序感。
+    """
+    return _STYLE_SHEET.substitute(
+        BACKGROUND=BACKGROUND_COLOR,
+        TEXT=TEXT_COLOR,
+        MUTED=TEXT_MUTED_COLOR,
+        ACCENT=ACCENT_COLOR,
+        TABLE_ROW=TABLE_ROW_COLOR,
+    )

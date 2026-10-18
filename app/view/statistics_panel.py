@@ -19,6 +19,9 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from app.common.plot_style import create_plot_widget
+from app.common.theme import ACCENT_COLOR, BACKGROUND_COLOR
+
 
 class StatisticsPanel(QWidget):
     """
@@ -57,6 +60,17 @@ class StatisticsPanel(QWidget):
         self.criteria_label = QLabel("--")
         self.verdict_label = QLabel("--")
 
+        # 统计值属于关键读数，统一挂上样式名，由主题用橙色加粗显示；
+        # 判定结论单独按合格/不合格着色，不参与这里的统一配色。
+        for value_label in (
+            self.total_count_label,
+            self.depth_range_label,
+            self.depth_mean_label,
+            self.amplitude_mean_label,
+            self.criteria_label,
+        ):
+            value_label.setObjectName("keyValueLabel")
+
         stats_layout.addRow("缺陷总数:", self.total_count_label)
         stats_layout.addRow("深度范围:", self.depth_range_label)
         stats_layout.addRow("平均深度:", self.depth_mean_label)
@@ -87,11 +101,11 @@ class StatisticsPanel(QWidget):
         depth_group = QGroupBox("深度分布")
         depth_layout = QVBoxLayout(depth_group)
 
-        self.depth_plot_widget = pg.PlotWidget(title="缺陷深度分布")
+        self.depth_plot_widget = create_plot_widget("缺陷深度分布")
         self.depth_plot_widget.setLabel('left', '数量')
         self.depth_plot_widget.setLabel('bottom', '深度 (mm)')
         self.depth_plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        self.depth_plot_widget.setBackground('#0f141a')
+        self.depth_plot_widget.setBackground(BACKGROUND_COLOR)
         self.depth_plot_widget.setMinimumHeight(150)
 
         # 深度分布柱状图
@@ -105,11 +119,11 @@ class StatisticsPanel(QWidget):
         amp_group = QGroupBox("波幅分布")
         amp_layout = QVBoxLayout(amp_group)
 
-        self.amp_plot_widget = pg.PlotWidget(title="缺陷波幅分布")
+        self.amp_plot_widget = create_plot_widget("缺陷波幅分布")
         self.amp_plot_widget.setLabel('left', '数量')
         self.amp_plot_widget.setLabel('bottom', '波幅 (%)')
         self.amp_plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        self.amp_plot_widget.setBackground('#0f141a')
+        self.amp_plot_widget.setBackground(BACKGROUND_COLOR)
         self.amp_plot_widget.setMinimumHeight(150)
 
         # 波幅分布柱状图
@@ -123,11 +137,11 @@ class StatisticsPanel(QWidget):
         dac_group = QGroupBox("DAC曲线")
         dac_layout = QVBoxLayout(dac_group)
 
-        self.dac_plot_widget = pg.PlotWidget(title="距离-波幅校正曲线")
+        self.dac_plot_widget = create_plot_widget("距离-波幅校正曲线")
         self.dac_plot_widget.setLabel('left', '波幅')
         self.dac_plot_widget.setLabel('bottom', '深度 (mm)')
         self.dac_plot_widget.showGrid(x=True, y=True, alpha=0.3)
-        self.dac_plot_widget.setBackground('#0f141a')
+        self.dac_plot_widget.setBackground(BACKGROUND_COLOR)
         self.dac_plot_widget.setMinimumHeight(150)
 
         # DAC曲线
@@ -214,7 +228,8 @@ class StatisticsPanel(QWidget):
         self.criteria_label.setText(f"{profile_name} / {level}级" if level else profile_name)
 
         overall = str(acceptance.get("overall_verdict", "--"))
-        color = {"合格": "#7fe7b2", "不合格": "#ff4d4f"}.get(overall, "#cfd8e3")
+        # 合格/不合格沿用告警语义色；「待定」等需要人工确认的结论用强调色提示。
+        color = {"合格": "#7fe7b2", "不合格": "#ff4d4f"}.get(overall, ACCENT_COLOR)
         self.verdict_label.setText(overall)
         self.verdict_label.setStyleSheet(f"color: {color}; font-weight: 700;")
 
