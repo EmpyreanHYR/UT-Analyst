@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 
@@ -48,20 +47,3 @@ class TcgProfile:
         gains_db = np.interp(depths, self._depths, self._gains)
         gains_linear = np.power(10.0, gains_db / 20.0)
         return signal_array * gains_linear
-
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "points": [
-                {"depth_mm": point.depth_mm, "gain_db": point.gain_db}
-                for point in self.points
-            ]
-        }
-
-    @classmethod
-    def from_dict(cls, data: dict[str, Any]) -> "TcgProfile":
-        return cls(
-            [
-                TcgPoint(float(item["depth_mm"]), float(item["gain_db"]))
-                for item in data.get("points", [])
-            ]
-        )

@@ -289,22 +289,6 @@ class UltrasonicSignalModel:
             sample_rate_hz=float(self.parameters["samplingRateHz"]),
         )
 
-    def apply_bandpass_filter(self, signal: np.ndarray, low_freq_hz: float, high_freq_hz: float, order: int = 4) -> np.ndarray:
-        """
-        应用带通滤波器。
-
-        参数：
-        - signal: 输入信号
-        - low_freq_hz: 低频截止频率（Hz）
-        - high_freq_hz: 高频截止频率（Hz）
-        - order: 滤波器阶数
-
-        返回：
-        - 滤波后的信号
-        """
-        b, a = self.signalProcessor.design_bandpass_filter(low_freq_hz, high_freq_hz, order)
-        return self.signalProcessor.apply_filter(signal, b, a)
-
     def apply_filter(
         self,
         signal: np.ndarray,
