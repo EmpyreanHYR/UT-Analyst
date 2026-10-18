@@ -52,6 +52,8 @@
 \usepackage{alltt}
 %以下是关于字体、版面的设置
 \usepackage{ctex}
+% 把罗马数字序号（Ⅰ Ⅱ Ⅲ…）并入中文字体处理，避免落入缺少该字形的西文字体而显示为空。
+\xeCJKDeclareCharClass{CJK}{"2160 -> "217F}
 %版面尺寸设置
 \usepackage[a4paper,top=3.5cm,bottom=2.6cm,left=3cm,right=2.6cm]{geometry}
 % 解决 fancyhdr 的 headheight 警告
@@ -212,7 +214,7 @@
 			\hline
 			\Version & 2026年10月10日 & \RevisedAuthor & 初始版本 \\ % 第一行
 			\hline
-			&  &  &  \\ % 第二行
+			\Version & 2026年10月18日 & \RevisedAuthor & 补充验收标准判定、指示长度测量、耦合监测、跨会话跟踪与缺陷类型提示等章节，并校订快捷键说明 \\ % 第二行
 			\hline
 			&  &  &  \\ % 空行
 			\hline
