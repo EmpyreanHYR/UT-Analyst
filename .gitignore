@@ -48,3 +48,7 @@ Direction/main.toc
 Direction/.DS_Store
 Direction/main.synctex.gz
 /docs/superpowers
+
+# 本地测试（不纳入版本库）
+tests/
+scripts/run_tests.ps1
