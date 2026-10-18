@@ -85,6 +85,10 @@ class MainWindow(QMainWindow):
     saveRequested = pyqtSignal()
     reportRequested = pyqtSignal()
 
+    # 验收标准相关信号。
+    acceptanceCriteriaRequested = pyqtSignal()
+    defectTrackingRequested = pyqtSignal()
+
     # 统计分析相关信号
     defectStatisticsRefreshRequested = pyqtSignal()
     signalFeaturesRequested = pyqtSignal()
@@ -195,12 +199,14 @@ class MainWindow(QMainWindow):
 
         self.applyParametersAction = QAction("应用当前参数", self)
         self.resetGateAction = QAction("闸门复位", self)
+        self.acceptanceCriteriaAction = QAction("验收标准", self)
         self.velocityCalibrationAction = QAction("声速校准", self)
         self.zeroCalibrationAction = QAction("零点校准", self)
         self.saveCalibrationAction = QAction("保存校准", self)
         self.loadCalibrationAction = QAction("加载校准", self)
         self.settingsMenu.addAction(self.applyParametersAction)
         self.settingsMenu.addAction(self.resetGateAction)
+        self.settingsMenu.addAction(self.acceptanceCriteriaAction)
         self.settingsMenu.addSeparator()
         self.settingsMenu.addAction(self.velocityCalibrationAction)
         self.settingsMenu.addAction(self.zeroCalibrationAction)
@@ -225,6 +231,7 @@ class MainWindow(QMainWindow):
         self.toggleStatisticsAction.setShortcut("F6")
         self.signalFeaturesAction = QAction("提取信号特征", self)
         self.signalComparisonAction = QAction("与参考波形对比", self)
+        self.defectTrackingAction = QAction("跨会话缺陷跟踪", self)
         self.toggleReplayAction = QAction("数据回放面板", self)
         self.toggleReplayAction.setCheckable(True)
         self.toggleReplayAction.setChecked(False)
@@ -245,6 +252,7 @@ class MainWindow(QMainWindow):
         self.viewMenu.addSeparator()
         self.viewMenu.addAction(self.signalFeaturesAction)
         self.viewMenu.addAction(self.signalComparisonAction)
+        self.viewMenu.addAction(self.defectTrackingAction)
         self.viewMenu.addSeparator()
         self.viewMenu.addAction(self.toggleReplayAction)
         self.viewMenu.addAction(self.toggleAdvancedUTAction)
@@ -409,9 +417,9 @@ class MainWindow(QMainWindow):
         self.aScanPlot.addItem(self.cursorLabelA, ignoreBounds=True)
         self.aScanPlot.addItem(self.cursorLabelB, ignoreBounds=True)
 
-        # 底部缺陷列表表格。
-        self.defectTableWidget = QTableWidget(0, 3, self)
-        self.defectTableWidget.setHorizontalHeaderLabels(["编号", "深度(mm)", "波幅"])  # 需求字段
+        # 底部缺陷列表表格。前 3 列为记录字段，第 4 列显示验收判定的等级与结论。
+        self.defectTableWidget = QTableWidget(0, 4, self)
+        self.defectTableWidget.setHorizontalHeaderLabels(["编号", "深度(mm)", "波幅", "判定"])  # 需求字段
         self.defectTableWidget.verticalHeader().setVisible(False)
         self.defectTableWidget.setAlternatingRowColors(True)
         self.defectTableWidget.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -762,10 +770,12 @@ class MainWindow(QMainWindow):
         self.toggleStatisticsAction.toggled.connect(self._toggleStatisticsVisibility)
         self.signalFeaturesAction.triggered.connect(self.signalFeaturesRequested.emit)
         self.signalComparisonAction.triggered.connect(self.signalComparisonRequested.emit)
+        self.defectTrackingAction.triggered.connect(self.defectTrackingRequested.emit)
         self.toggleReplayAction.toggled.connect(self._toggleReplayVisibility)
         self.toggleAdvancedUTAction.toggled.connect(self.advancedUTDockWidget.setVisible)
         self.toggleScanPanelAction.toggled.connect(self.scanDockWidget.setVisible)
         self.resetGateAction.triggered.connect(self._resetGateLinesToDefault)
+        self.acceptanceCriteriaAction.triggered.connect(self.acceptanceCriteriaRequested.emit)
         self.velocityCalibrationAction.triggered.connect(self.velocityCalibrationRequested.emit)
         self.zeroCalibrationAction.triggered.connect(self.zeroCalibrationRequested.emit)
         self.saveCalibrationAction.triggered.connect(self.saveCalibrationRequested.emit)
@@ -1358,10 +1368,12 @@ class MainWindow(QMainWindow):
 
     def updateBScanImage(self, bScanMatrix: np.ndarray) -> None:
         """
-        B-Scan 更新接口占位。
+        接收控制器在刷新每一帧时推送的 B-Scan 数据。
 
-        当前功能列表仅要求 A-Scan + 缺陷表格，此接口保留用于与既有控制器兼容，
-        后续扩展到双图布局时可直接接入。
+        实时 B-Scan 图像由独立的 ScanPanel.update_b_scan() 负责绘制，控制器刷新
+        当前帧时仍会调用本方法，因此这里保留为空实现，仅用于连通既有调用链，
+        避免影响已经建立的信号连接。参数 bScanMatrix 作为矩阵数据的接收口保留，
+        后续若把 B-Scan 直接并入主视图，可在此处补上绘制逻辑，无需改动控制器。
         """
         _ = bScanMatrix
 
@@ -1465,6 +1477,7 @@ class MainWindow(QMainWindow):
         self.defectTableWidget.setItem(rowIndex, 0, indexItem)
         self.defectTableWidget.setItem(rowIndex, 1, QTableWidgetItem(f"{defectDepthMm:.2f}"))
         self.defectTableWidget.setItem(rowIndex, 2, QTableWidgetItem(f"{amplitude:.3f}"))
+        self.defectTableWidget.setItem(rowIndex, 3, QTableWidgetItem("--"))
         self.defectTableWidget.scrollToBottom()
         self.defectLogged.emit(
             {
@@ -1565,6 +1578,25 @@ class MainWindow(QMainWindow):
         else:
             self.defectTableWidget.setItem(0, 1, QTableWidgetItem(f"{depthMm:.2f}"))
         self.defectTableWidget.setItem(0, 2, QTableWidgetItem(f"{amplitude:.3f}"))
+        self.defectTableWidget.setItem(0, 3, QTableWidgetItem("--"))
+
+    def updateDefectJudgements(self, judgements: dict[int, str]) -> None:
+        """按记录 UID 刷新缺陷表的“判定”列。
+
+        判定由控制器根据当前验收标准计算，界面只负责回填文本。
+        """
+        for rowIndex in range(self.defectTableWidget.rowCount()):
+            indexItem = self.defectTableWidget.item(rowIndex, 0)
+            if indexItem is None:
+                continue
+            uidValue = indexItem.data(Qt.UserRole)
+            if uidValue is None:
+                continue
+            cell = self.defectTableWidget.item(rowIndex, 3)
+            if cell is None:
+                cell = QTableWidgetItem("")
+                self.defectTableWidget.setItem(rowIndex, 3, cell)
+            cell.setText(judgements.get(int(uidValue), ""))
 
     def setRecordingState(self, isRecording: bool) -> None:
         """更新记录状态显示，不改变控制器业务状态。"""

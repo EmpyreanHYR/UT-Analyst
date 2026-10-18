@@ -9,10 +9,12 @@ import pyqtgraph as pg
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QScrollArea,
     QVBoxLayout,
     QWidget,
 )
@@ -52,13 +54,34 @@ class StatisticsPanel(QWidget):
         self.depth_range_label = QLabel("-- ~ -- mm")
         self.depth_mean_label = QLabel("-- mm")
         self.amplitude_mean_label = QLabel("-- %")
+        self.criteria_label = QLabel("--")
+        self.verdict_label = QLabel("--")
 
         stats_layout.addRow("缺陷总数:", self.total_count_label)
         stats_layout.addRow("深度范围:", self.depth_range_label)
         stats_layout.addRow("平均深度:", self.depth_mean_label)
         stats_layout.addRow("平均波幅:", self.amplitude_mean_label)
+        stats_layout.addRow("验收标准:", self.criteria_label)
+        stats_layout.addRow("判定结论:", self.verdict_label)
 
         layout.addWidget(stats_group)
+
+        # 验收判定明细
+        verdict_group = QGroupBox("验收判定明细")
+        verdict_layout = QVBoxLayout(verdict_group)
+
+        self.evaluation_detail_label = QLabel("尚无判定明细。")
+        self.evaluation_detail_label.setWordWrap(True)
+        self.evaluation_detail_label.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        # 明细行数随缺陷条数、类型提示长度变化；放进滚动区后，面板被压矮时只出现
+        # 滚动条，不会把文字裁掉（换行后的实际高度取决于宽度，普通布局算不准）。
+        self.evaluation_detail_scroll = QScrollArea()
+        self.evaluation_detail_scroll.setWidgetResizable(True)
+        self.evaluation_detail_scroll.setFrameShape(QFrame.NoFrame)
+        self.evaluation_detail_scroll.setMinimumHeight(88)
+        self.evaluation_detail_scroll.setWidget(self.evaluation_detail_label)
+        verdict_layout.addWidget(self.evaluation_detail_scroll)
+        layout.addWidget(verdict_group)
 
         # 深度分布图
         depth_group = QGroupBox("深度分布")
@@ -143,6 +166,8 @@ class StatisticsPanel(QWidget):
         amp_mean = stats.get("amplitude_mean", 0.0)
         self.amplitude_mean_label.setText(f"{amp_mean * 100:.1f} %")
 
+        self._update_acceptance(stats.get("acceptance"))
+
         # 更新深度分布图
         depth_dist = stats.get("depth_distribution", {})
         if depth_dist:
@@ -174,6 +199,40 @@ class StatisticsPanel(QWidget):
         else:
             self.amp_bargraph.setOpts(x=[], height=[], width=0.8)
             self.amp_plot_widget.getAxis("bottom").setTicks([])
+
+    def _update_acceptance(self, acceptance: dict[str, Any] | None) -> None:
+        """刷新验收标准、整体结论与逐条判定明细。"""
+        if not acceptance:
+            self.criteria_label.setText("--")
+            self.verdict_label.setText("--")
+            self.verdict_label.setStyleSheet("")
+            self.evaluation_detail_label.setText("尚无判定明细。")
+            return
+
+        profile_name = str(acceptance.get("profile_name", "--"))
+        level = str(acceptance.get("acceptance_level", ""))
+        self.criteria_label.setText(f"{profile_name} / {level}级" if level else profile_name)
+
+        overall = str(acceptance.get("overall_verdict", "--"))
+        color = {"合格": "#7fe7b2", "不合格": "#ff4d4f"}.get(overall, "#cfd8e3")
+        self.verdict_label.setText(overall)
+        self.verdict_label.setStyleSheet(f"color: {color}; font-weight: 700;")
+
+        lines: list[str] = []
+        for item in acceptance.get("evaluations", []):
+            uid = item.get("uid", 0)
+            level_text = item.get("level", "--")
+            verdict = item.get("verdict", "--")
+            zone = item.get("amplitude_zone", "--")
+            db = item.get("db_above_dac")
+            db_text = "--" if db is None else f"{float(db):+.1f} dB"
+            lines.append(f"#{uid}: {level_text}级（{zone}区 {db_text}）→ {verdict}")
+            type_hint = item.get("type_hint")
+            if type_hint:
+                lines[-1] += f"｜{type_hint}"
+        for note in acceptance.get("notes", []):
+            lines.append(f"注：{note}")
+        self.evaluation_detail_label.setText("\n".join(lines) if lines else "尚无判定明细。")
 
     def update_dac_curve(self, depths: np.ndarray, amplitudes: np.ndarray,
                          defect_depths: list[float] | None = None,

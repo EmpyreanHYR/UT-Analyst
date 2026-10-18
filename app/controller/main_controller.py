@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 import csv
-import html
 import json
 import logging
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -19,6 +19,22 @@ from app.common.unit_converter import time_us_to_depth_mm
 from app.common.auth import AuthService, Role, User, has_permission
 from app.common.report_generator import ReportGenerator, ReportConfig
 from app.common.report_exporter import ReportExporter
+from app.model import acceptance_criteria as acceptance
+from app.model import defect_tracker as tracker
+from app.model.coupling_monitor import (
+    STATE_FLUCTUATION,
+    STATE_NORMAL,
+    STATE_POOR_COUPLING,
+    CouplingMonitor,
+    CouplingStatus,
+    extract_backwall_metrics,
+)
+from app.model.defect_classifier import (
+    ClassificationResult,
+    DefectFeatures,
+    classify_defect,
+)
+from app.model.indication_measurement import IndicationMeasurement, measure_from_history
 from app.model.ultrasonic_model import UltrasonicSignalModel
 from app.model.defect_analyzer import DefectAnalyzer, DefectRecord
 from app.model.acquisition import AcquisitionSource, AcquisitionWorker, SimulatorSource
@@ -28,7 +44,9 @@ from app.model.session_repository import FrameChunkStore, SessionRepository
 from app.model.tcg import TcgPoint, TcgProfile
 from app.view.main_window import MainWindow
 from app.view.audit_dialog import AuditDialog
+from app.view.acceptance_dialog import AcceptanceCriteriaDialog
 from app.view.report_config_dialog import ReportConfigDialog
+from app.view.tracking_dialog import TrackingDialog
 from app.view.report_preview_window import ReportPreviewWindow
 
 logger = logging.getLogger("ut_analyst.controller")
@@ -106,6 +124,11 @@ class MainController(QObject):
         self.reportExporter = ReportExporter()
         self.reportConfig = ReportConfig()
 
+        # 验收标准：默认取内置规则表；验收等级留空时沿用规则表自带的等级。
+        self.acceptanceProfileKey: str = acceptance.default_profile_key()
+        self.acceptanceLevel: str = ""
+        self.wallThicknessMm: float | None = None
+
         # 信号平均历史缓存。
         self.signalAverageEnabled = False
         self.signalAverageCount = 8
@@ -131,6 +154,12 @@ class MainController(QObject):
         self.tcgEnabled = False
         self.tcgProfile = TcgProfile()
         self.scanGrid = ScanGrid(10, 10, 5.0, 5.0)
+        # 相邻帧之间的扫查步距，用于把 B-Scan 历史折算成物理位置（指示长度测量）。
+        self.scanStepMm: float = float(self.scanGrid.column_spacing_mm)
+        # 耦合 / 探头健康监测：基于底波幅值的滑动窗口统计。
+        self.couplingMonitor = CouplingMonitor()
+        self.lastCouplingStatus: CouplingStatus | None = None
+        self.lastCouplingState: str = ""
         self.cScanValues: dict[int, float] = {}
         self.acquisitionSource = acquisition_source or SimulatorSource(self.model)
         self.useWorker = bool(use_worker)
@@ -164,6 +193,8 @@ class MainController(QObject):
         self.view.zeroCalibrationRequested.connect(self.calibrateProbeDelay)
         self.view.saveCalibrationRequested.connect(self.saveCalibrationFile)
         self.view.loadCalibrationRequested.connect(self.loadCalibrationFile)
+        self.view.acceptanceCriteriaRequested.connect(self.configureAcceptanceCriteria)
+        self.view.defectTrackingRequested.connect(self.showDefectTracking)
 
         # 功能列表 5：保存数据与报告生成。
         self.view.openRequested.connect(self.openDataFile)
@@ -216,6 +247,9 @@ class MainController(QObject):
             self.view.showStatusMessage("采集已在运行。")
             return
         self._ensureActiveSession()
+        # 每次启动采集都重建耦合基准，避免沿用上一轮工件的底波参考。
+        self.couplingMonitor.reset()
+        self.lastCouplingState = ""
         if self.freezeEnabled:
             self.setFreezeEnabled(False)
         if self.useWorker:
@@ -419,6 +453,13 @@ class MainController(QObject):
             "imageDataUri": captureDataUri,
         }
 
+        # 自动测量指示长度 / 高度：结果并入快照，供验收判定与报告引用。
+        measurement = self.measureCurrentIndication()
+        if measurement is not None:
+            recordData["indicationLengthMm"] = measurement.length_mm
+            recordData["indicationHeightMm"] = measurement.height_mm
+            recordData["indicationMethod"] = measurement.method
+
         # 若同一 UID 已存在，先移除旧记录，再追加最新截图。
         self.loggedDefectSnapshots = [
             existingRecord
@@ -449,6 +490,8 @@ class MainController(QObject):
         # 自动刷新统计面板（如果可见）
         if self.view.statisticsDockWidget.isVisible():
             self.refreshDefectStatistics()
+        else:
+            self._refreshDefectJudgements()
 
     def _onDefectRecordsDeleted(self, deletedUids: object) -> None:
         """同步删除被用户从表格中移除的缺陷截图记录。"""
@@ -769,14 +812,29 @@ class MainController(QObject):
                 self.loggedDefectSnapshots,
                 key=lambda item: int(item.get("recordUid", 0)),
             )
-            hasDefect = bool(defectRecords) or bool(self.lastQuantitativeData["gateTriggered"])
             if defectRecords:
                 defectDepthMm = defectRecords[-1]["depthMm"]
             elif bool(self.lastQuantitativeData["gateTriggered"]):
                 defectDepthMm = self.lastQuantitativeData["depthMm"]
             else:
                 defectDepthMm = None
-            decisionResult = "不合格" if hasDefect else "合格"
+
+            # 判定结论优先取验收规则表的评级结果；无记录但闸门触发时仍保守判为不合格。
+            acceptanceSummary = self.buildAcceptanceSummary()
+            trackingSummary = self.buildTrackingResult(workpieceName)
+            # 判定明细里并入类型提示，报告中一并展示。
+            acceptancePayload = acceptanceSummary.to_dict()
+            reportTypeHints = self._typeHintsByUid()
+            for evaluation in acceptancePayload["evaluations"]:
+                evaluation["type_hint"] = reportTypeHints.get(
+                    int(evaluation.get("uid", 0)), ""
+                )
+            if acceptanceSummary.defect_count > 0:
+                decisionResult = acceptanceSummary.overall_verdict
+            elif bool(self.lastQuantitativeData["gateTriggered"]):
+                decisionResult = "不合格"
+            else:
+                decisionResult = "合格"
             detectionTimeText = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
             # 使用增强的ReportGenerator生成报告
@@ -788,6 +846,8 @@ class MainController(QObject):
                 defect_records=[],
                 defect_snapshots=defectRecords,
                 parameters=self.model.getParameters() if self.lastFrameData else None,
+                acceptance_summary=acceptancePayload,
+                tracking_summary=trackingSummary.to_dict(),
             )
             self.currentReportPixmap = waveformPixmap
             self.currentReportImageDataUri = overviewImageDataUri
@@ -1020,6 +1080,7 @@ class MainController(QObject):
 
         self.lastFrameData = frameData
         self._record_frame(frameData)
+        self._updateCouplingMonitor(frameData["envelopeSignal"])
         self._renderCurrentFrame(frameData, gatePeakResult=gatePeakResult)
 
     def _renderCurrentFrame(
@@ -1286,102 +1347,6 @@ class MainController(QObject):
         rawSignal = np.asarray(rawValues, dtype=np.float32)
         envelopeSignal = np.asarray(envelopeValues, dtype=np.float32)
         return parameters, timeAxisUs, rawSignal, envelopeSignal
-
-    def _buildReportHtmlTemplate(
-        self,
-        detectionTimeText: str,
-        workpieceName: str,
-        defectDepthMm: float | None,
-        decisionResult: str,
-        overviewImageDataUri: str,
-        defectRecords: list[dict[str, Any]],
-    ) -> str:
-        """
-        构建检测报告 HTML 模板字符串。
-
-        模板字段：
-        - 检测时间
-        - 工件名称
-        - 缺陷深度
-        - 判定结果（合格/不合格）
-        """
-        depthText = "--" if defectDepthMm is None else f"{defectDepthMm:.2f} mm"
-        resultColor = "#2e8b57" if decisionResult == "合格" else "#d64045"
-        safeWorkpieceName = html.escape(workpieceName)
-        safeOverviewImage = overviewImageDataUri if overviewImageDataUri else ""
-
-        if defectRecords:
-            defectCards: list[str] = []
-            for index, defectRecord in enumerate(defectRecords, start=1):
-                detectedAtText = html.escape(str(defectRecord.get("detectedAt", "--")))
-                depthValue = float(defectRecord.get("depthMm", 0.0))
-                amplitudeValue = float(defectRecord.get("amplitude", 0.0))
-                peakPercentValue = float(defectRecord.get("peakPercent", 0.0))
-                imageDataUri = str(defectRecord.get("imageDataUri", "")) or safeOverviewImage
-                defectCards.append(
-                    f"""
-    <div class="defect-card">
-      <div><strong>缺陷 #{index}</strong></div>
-      <div>检测时刻：{detectedAtText}</div>
-      <div>深度：{depthValue:.2f} mm</div>
-      <div>波幅：{amplitudeValue:.3f}（{peakPercentValue:.1f}%）</div>
-      <img src="{imageDataUri}" alt="缺陷截图 {index}" />
-    </div>
-"""
-                )
-            defectSectionHtml = "".join(defectCards)
-        else:
-            defectSectionHtml = """
-    <div class="empty-card">
-      当前未记录到缺陷截图。
-    </div>
-"""
-
-        return f"""
-<!DOCTYPE html>
-<html lang="zh-CN">
-<head>
-  <meta charset="UTF-8" />
-  <title>超声检测报告</title>
-  <style>
-    body {{ font-family: 'PingFang SC', 'Hiragino Sans GB', 'Noto Sans CJK SC', Arial, sans-serif; margin: 24px; color: #1a1f24; background: #ffffff; }}
-    h1 {{ margin: 0 0 14px 0; font-size: 24px; }}
-    .meta {{ margin-bottom: 18px; line-height: 1.9; font-size: 14px; }}
-    .result {{ color: {resultColor}; font-weight: 700; }}
-    .wave {{ margin-top: 14px; border: 1px solid #d6dee8; padding: 10px; border-radius: 6px; }}
-    .wave img {{ width: 100%; max-width: 900px; border: 1px solid #bec9d6; }}
-    .defect-list {{ margin-top: 18px; }}
-    .defect-card {{ border: 1px solid #d9e3ee; border-radius: 8px; padding: 10px; margin-bottom: 12px; background: #fbfdff; line-height: 1.8; }}
-    .defect-card img {{ width: 100%; max-width: 860px; border: 1px solid #bec9d6; margin-top: 8px; }}
-    .empty-card {{ border: 1px dashed #bfd0e0; border-radius: 8px; padding: 12px; color: #4f6275; background: #f7fbff; }}
-  </style>
-</head>
-<body>
-  <h1>超声波智能辅助检测报告</h1>
-  <div class="meta">
-    <div><strong>检测时间：</strong>{detectionTimeText}</div>
-    <div><strong>工件名称：</strong>{safeWorkpieceName}</div>
-    <div><strong>缺陷数量：</strong>{len(defectRecords)}</div>
-    <div><strong>缺陷深度：</strong>{depthText}</div>
-    <div><strong>判定结果：</strong><span class="result">{decisionResult}</span></div>
-  </div>
-  <div class="wave">
-    <div><strong>当前总览波形</strong></div>
-    <img src="{safeOverviewImage}" alt="波形截图" />
-  </div>
-  <div class="defect-list">
-    <h2>缺陷记录截图</h2>
-{defectSectionHtml}
-  </div>
-</body>
-</html>
-"""
-
-    @staticmethod
-    def _injectReportImageSource(htmlTemplate: str, imageSource: str) -> str:
-        """将报告模板中的截图占位符替换为实际图片路径。"""
-        safeSource = imageSource if imageSource else ""
-        return htmlTemplate.replace("__WAVEFORM_IMAGE_SRC__", safeSource)
 
     @staticmethod
     def _pixmapToDataUri(pixmap: QPixmap) -> str:
@@ -1776,6 +1741,197 @@ class MainController(QObject):
         )
         QMessageBox.information(self.view, "波形对比", text)
 
+    def _updateCouplingMonitor(self, envelope: np.ndarray) -> None:
+        """用底波幅值更新耦合监测，并在状态恶化时给出提示。"""
+        backwall, noise = extract_backwall_metrics(envelope)
+        status = self.couplingMonitor.update(backwall, noise)
+        self.lastCouplingStatus = status
+        if status.state in (STATE_POOR_COUPLING, STATE_FLUCTUATION):
+            # 只在状态发生变化时提示一次，避免每帧刷屏。
+            if status.state != self.lastCouplingState:
+                self.view.showStatusMessage(
+                    f"{status.message} {status.advice}",
+                    durationMs=4000,
+                    isWarning=True,
+                )
+            self.lastCouplingState = status.state
+        elif status.state == STATE_NORMAL:
+            self.lastCouplingState = status.state
+
+    def buildTrackingResult(self, workpiece: str | None = None) -> tracker.TrackingResult:
+        """跨会话归组缺陷记录，输出重复出现的缺陷线索。
+
+        参数：
+        - workpiece: 工件名，None 或空串表示不筛选工件。
+        """
+        try:
+            records = self.sessionRepository.list_all_defects(workpiece or None)
+        except Exception as error:  # pragma: no cover - 数据库异常不应打断界面
+            logger.warning("读取跨会话缺陷记录失败：%s", error)
+            return tracker.TrackingResult(notes=["读取缺陷记录失败，无法进行跨会话跟踪。"])
+        result = tracker.track_defects(records, depth_tolerance_mm=5.0)
+        if not records:
+            result.notes.append("数据库中还没有缺陷记录。")
+        return result
+
+    def showDefectTracking(self) -> None:
+        """弹出跨会话缺陷跟踪结果对话框。"""
+        result = self.buildTrackingResult(self.reportConfig.workpiece_name)
+        dialog = TrackingDialog(result.to_dict(), self.view)
+        dialog.exec_()
+
+    def configureAcceptanceCriteria(self) -> None:
+        """弹出验收标准对话框，更新标准、验收等级与工件壁厚。"""
+        if not self._require_permission("configure"):
+            return
+        dialog = AcceptanceCriteriaDialog(
+            profile_key=self.acceptanceProfileKey,
+            acceptance_level=self.acceptanceLevel,
+            wall_thickness_mm=self.wallThicknessMm,
+            scan_step_mm=self.scanStepMm,
+            parent=self.view,
+        )
+        if dialog.exec_() != dialog.Accepted:
+            return
+        profileKey, acceptanceLevel, thickness, scanStep = dialog.build_values()
+        self.setAcceptanceCriteria(profileKey, acceptanceLevel, thickness, scanStep)
+
+    def setAcceptanceCriteria(
+        self,
+        profile_key: str,
+        acceptance_level: str,
+        wall_thickness_mm: float | None = None,
+        scan_step_mm: float | None = None,
+    ) -> None:
+        """设置当前验收标准、验收等级、工件壁厚与扫查步距（供界面与自动化调用）。"""
+        profile = acceptance.get_profile(profile_key)
+        if acceptance_level not in profile.levels:
+            acceptance_level = profile.acceptance_level
+        self.acceptanceProfileKey = profile.key
+        self.acceptanceLevel = acceptance_level
+        self.wallThicknessMm = wall_thickness_mm
+        if scan_step_mm is not None and scan_step_mm > 0.0:
+            self.scanStepMm = float(scan_step_mm)
+        self._audit(
+            "criteria.change",
+            "criteria",
+            profile.key,
+            {
+                "acceptance_level": acceptance_level,
+                "wall_thickness_mm": wall_thickness_mm,
+                "scan_step_mm": self.scanStepMm,
+            },
+        )
+        thicknessText = "未指定" if wall_thickness_mm is None else f"{wall_thickness_mm:.1f} mm"
+        self.view.showStatusMessage(
+            f"验收标准已更新：{profile.name}，验收等级 {acceptance_level}，"
+            f"壁厚 {thicknessText}，扫查步距 {self.scanStepMm:.2f} mm。"
+        )
+        if self.view.statisticsDockWidget.isVisible():
+            self.refreshDefectStatistics()
+
+    def _currentDepthAxisMm(self) -> np.ndarray:
+        """按当前声速与零点延迟把时间轴换算为深度轴（mm，不早于 0）。"""
+        velocity = float(self.model.parameters.get("soundVelocityMps", 5900.0))
+        probeDelayUs = float(self.model.parameters.get("probeDelayUs", 0.0))
+        timeUs = np.asarray(self.model.timeAxisUs, dtype=float)
+        depths = (timeUs - probeDelayUs) * 1e-6 * velocity / 2.0 * 1000.0
+        return np.maximum(depths, 0.0)
+
+    def measureCurrentIndication(self) -> IndicationMeasurement | None:
+        """用最近的 B-Scan 帧历史测量当前指示的长度与高度。"""
+        history = np.asarray(self.model.bScanMatrix, dtype=float)
+        if history.ndim != 2 or history.shape[0] < 2:
+            return None
+        depths = self._currentDepthAxisMm()
+        if depths.size != history.shape[1]:
+            return None
+        gateWindow = (
+            float(self.model.parameters["gateStartMm"]),
+            float(self.model.parameters["gateEndMm"]),
+        )
+        try:
+            return measure_from_history(
+                history,
+                scan_step_mm=self.scanStepMm,
+                depths_mm=depths,
+                depth_window_mm=gateWindow,
+            )
+        except Exception as error:  # pragma: no cover - 测量失败不应影响记录流程
+            logger.warning("指示长度测量失败：%s", error)
+            return None
+
+    def _currentAcceptanceProfile(self) -> acceptance.AcceptanceProfile:
+        """取当前生效的规则表（含用户选择的验收等级）。"""
+        profile = acceptance.get_profile(self.acceptanceProfileKey)
+        if self.acceptanceLevel and self.acceptanceLevel != profile.acceptance_level:
+            # 复制一份，避免修改内置规则表本身。
+            profile = replace(profile, acceptance_level=self.acceptanceLevel)
+        return profile
+
+    def buildAcceptanceSummary(self) -> acceptance.AcceptanceSummary:
+        """依据已记录的缺陷快照与 DAC 曲线生成验收判定汇总。"""
+        profile = self._currentAcceptanceProfile()
+        dacDepths, dacAmplitudes = self.defectAnalyzer.generate_dac_curve(
+            depth_range_mm=(0.0, 200.0),
+            reference_depth_mm=50.0,
+            reference_amplitude=1.0,
+        )
+        inputs: list[acceptance.DefectEvaluationInput] = []
+        for snapshot in self.loggedDefectSnapshots:
+            depthMm = float(snapshot.get("depthMm", 0.0))
+            amplitude = float(snapshot.get("amplitude", 0.0))
+            check = self.defectAnalyzer.check_defect_against_dac(
+                depthMm, amplitude, dacDepths, dacAmplitudes
+            )
+            lengthMm = snapshot.get("indicationLengthMm")
+            inputs.append(
+                acceptance.DefectEvaluationInput(
+                    uid=int(snapshot.get("recordUid", 0)),
+                    depth_mm=depthMm,
+                    amplitude=amplitude,
+                    db_above_dac=float(check["db_above_dac"]) if check.get("in_range") else None,
+                    indication_length_mm=float(lengthMm) if lengthMm is not None else None,
+                    wall_thickness_mm=self.wallThicknessMm,
+                )
+            )
+        return acceptance.evaluate_records(inputs, profile)
+
+    @staticmethod
+    def _judgementText(evaluation: acceptance.DefectEvaluation) -> str:
+        """把单条判定压缩成表格单元格文本。"""
+        return f"{evaluation.level}级 · {evaluation.verdict}"
+
+    def _refreshDefectJudgements(self) -> None:
+        """把当前判定结果回填到缺陷表的“判定”列。"""
+        summary = self.buildAcceptanceSummary()
+        judgements = {
+            item.uid: self._judgementText(item) for item in summary.evaluations
+        }
+        self.view.updateDefectJudgements(judgements)
+
+    def classifySnapshot(self, snapshot: dict[str, Any]) -> ClassificationResult:
+        """对一条缺陷快照做规则法类型提示。"""
+        return classify_defect(
+            DefectFeatures(
+                depth_mm=float(snapshot.get("depthMm", 0.0)),
+                amplitude=float(snapshot.get("amplitude", 0.0)),
+                indication_length_mm=snapshot.get("indicationLengthMm"),
+                indication_height_mm=snapshot.get("indicationHeightMm"),
+                wall_thickness_mm=self.wallThicknessMm,
+            )
+        )
+
+    def _typeHintsByUid(self) -> dict[int, str]:
+        """按记录 UID 计算一行的类型提示文本。"""
+        hints: dict[int, str] = {}
+        for snapshot in self.loggedDefectSnapshots:
+            uid = int(snapshot.get("recordUid", 0))
+            if uid <= 0:
+                continue
+            hints[uid] = self.classifySnapshot(snapshot).short_text()
+        return hints
+
     def getDefectStatistics(self) -> dict[str, Any]:
         """
         获取缺陷统计信息。
@@ -1795,6 +1951,11 @@ class MainController(QObject):
             self.defectAnalyzer.add_record(record)
 
         stats = self.defectAnalyzer.get_statistics()
+        acceptancePayload = self.buildAcceptanceSummary().to_dict()
+        # 把类型提示并到每条判定明细里，界面与报告都能直接读取。
+        typeHints = self._typeHintsByUid()
+        for evaluation in acceptancePayload["evaluations"]:
+            evaluation["type_hint"] = typeHints.get(int(evaluation.get("uid", 0)), "")
         return {
             "total_count": stats.total_count,
             "depth_min_mm": stats.depth_min_mm,
@@ -1805,6 +1966,7 @@ class MainController(QObject):
             "amplitude_std": stats.amplitude_std,
             "depth_distribution": stats.depth_distribution,
             "amplitude_distribution": stats.amplitude_distribution,
+            "acceptance": acceptancePayload,
         }
 
     def setSignalAverage(self, enabled: bool, count: int = 8) -> None:
@@ -1876,6 +2038,7 @@ class MainController(QObject):
         try:
             stats = self.getDefectStatistics()
             self.view.statisticsPanel.update_statistics(stats)
+            self._refreshDefectJudgements()
 
             # 更新DAC曲线
             if stats["total_count"] > 0:

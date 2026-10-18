@@ -90,6 +90,8 @@ class ReportGenerator:
         defect_records: list[dict[str, Any]],
         defect_snapshots: list[dict[str, Any]],
         parameters: dict[str, Any] | None = None,
+        acceptance_summary: dict[str, Any] | None = None,
+        tracking_summary: dict[str, Any] | None = None,
         signed_by: str | None = None,
         signed_at: str | None = None,
     ) -> str:
@@ -99,11 +101,13 @@ class ReportGenerator:
         参数：
         - config: 报告配置
         - detection_time: 检测时间
-        - decision_result: 判定结果（"合格"/"不合格"）
+        - decision_result: 判定结果（"合格"/"不合格"/"待定"）
         - overview_image_data_uri: 总览图base64数据
         - defect_records: 缺陷记录列表
         - defect_snapshots: 缺陷截图列表
         - parameters: 检测参数（可选）
+        - acceptance_summary: 验收判定汇总（可选，来自验收规则表）
+        - tracking_summary: 跨会话缺陷跟踪汇总（可选）
 
         返回：
         - html: HTML报告字符串
@@ -191,19 +195,114 @@ class ReportGenerator:
             card_img = ""
             if "imageDataUri" in snap and snap["imageDataUri"]:
                 card_img = f'<img src="{snap["imageDataUri"]}" style="max-width:100%; border-radius:4px; margin-top:8px;">'
+            length_value = snap.get("indicationLengthMm")
+            length_text = "——" if length_value is None else f"{float(length_value):.1f} mm"
+            height_value = snap.get("indicationHeightMm")
+            height_text = "——" if height_value is None else f"{float(height_value):.1f} mm"
             defect_cards_html += f"""
             <div style="border:1px solid #ddd; border-radius:6px; padding:12px; margin:8px 0; background:#fafbfc;">
                 <h4 style="margin:0 0 8px 0; color:#e74c3c;">缺陷 #{idx + 1}</h4>
                 <table style="width:100%; border-collapse:collapse;">
                     <tr>
                         <td style="padding:3px 8px; border:1px solid #eee; background:#f5f5f5; width:100px;">深度</td>
-                        <td style="padding:3px 8px; border:1px solid #eee;">{snap.get('depthMm', '——'):.2f} mm</td>
+                        <td style="padding:3px 8px; border:1px solid #eee;">{snap.get('depthMm', 0.0):.2f} mm</td>
                         <td style="padding:3px 8px; border:1px solid #eee; background:#f5f5f5; width:100px;">波幅</td>
                         <td style="padding:3px 8px; border:1px solid #eee;">{snap.get('amplitude', 0) * 100:.1f}%</td>
+                    </tr>
+                    <tr>
+                        <td style="padding:3px 8px; border:1px solid #eee; background:#f5f5f5;">指示长度</td>
+                        <td style="padding:3px 8px; border:1px solid #eee;">{length_text}</td>
+                        <td style="padding:3px 8px; border:1px solid #eee; background:#f5f5f5;">指示高度</td>
+                        <td style="padding:3px 8px; border:1px solid #eee;">{height_text}</td>
                     </tr>
                 </table>
                 {card_img}
             </div>"""
+
+        # 验收判定明细（由验收规则表计算）
+        acceptance_html = ""
+        if acceptance_summary:
+            evaluation_rows = ""
+            for item in acceptance_summary.get("evaluations", []):
+                db_value = item.get("db_above_dac")
+                db_text = "——" if db_value is None else f"{float(db_value):+.1f}"
+                length_value = item.get("indication_length_mm")
+                length_text = "——" if length_value is None else f"{float(length_value):.1f}"
+                verdict = str(item.get("verdict", "——"))
+                verdict_color = "#e74c3c" if verdict == "不合格" else "#27ae60"
+                evaluation_rows += f"""
+                    <tr>
+                        <td>#{item.get('uid', 0)}</td>
+                        <td>{item.get('amplitude_zone', '——')}</td>
+                        <td>{db_text}</td>
+                        <td>{length_text}</td>
+                        <td>{item.get('level', '——')}</td>
+                        <td style="color:{verdict_color}; font-weight:600;">{verdict}</td>
+                        <td>{item.get('type_hint') or '——'}</td>
+                    </tr>"""
+            notes_html = "".join(
+                f"<li>{note}</li>" for note in acceptance_summary.get("notes", [])
+            )
+            acceptance_html = f"""
+            <h3>验收判定明细</h3>
+            <p style="color:#7f8c8d;">
+                验收标准：{acceptance_summary.get('profile_name', '——')} |
+                验收等级：{acceptance_summary.get('acceptance_level', '——')} |
+                整体结论：{acceptance_summary.get('overall_verdict', '——')}
+            </p>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:80px;">编号</th>
+                        <th style="width:100px;">波幅区</th>
+                        <th style="width:120px;">相对参考(dB)</th>
+                        <th style="width:130px;">指示长度(mm)</th>
+                        <th style="width:80px;">等级</th>
+                        <th style="width:100px;">判定</th>
+                        <th style="width:160px;">类型提示</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {evaluation_rows if evaluation_rows else '<tr><td colspan="7" style="text-align:center;">无记录</td></tr>'}
+                </tbody>
+            </table>
+            {f'<ul style="color:#7f8c8d;">{notes_html}</ul>' if notes_html else ''}"""
+
+        # 跨会话缺陷跟踪（可选）
+        tracking_html = ""
+        if tracking_summary and tracking_summary.get("tracks"):
+            track_rows = ""
+            for track in tracking_summary.get("tracks", []):
+                amplitude_change = track.get("amplitude_change")
+                length_change = track.get("length_change")
+                track_rows += f"""
+                    <tr>
+                        <td>#{track.get('track_id', 0)}</td>
+                        <td>{float(track.get('depth_mm', 0.0)):.1f}</td>
+                        <td>{track.get('session_count', 0)}</td>
+                        <td>{"——" if amplitude_change is None else f"{float(amplitude_change):+.3f}"}</td>
+                        <td>{"——" if length_change is None else f"{float(length_change):+.1f} mm"}</td>
+                        <td>{track.get('note', '')}</td>
+                    </tr>"""
+            tracking_html = f"""
+            <h3>跨会话重复缺陷</h3>
+            <p style="color:#7f8c8d;">共 {tracking_summary.get('repeated_count', 0)} 处位置重复出现，
+               其中跨会话重复 {tracking_summary.get('cross_session_count', 0)} 处。</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width:60px;">组</th>
+                        <th style="width:100px;">深度(mm)</th>
+                        <th style="width:90px;">会话数</th>
+                        <th style="width:110px;">波幅变化</th>
+                        <th style="width:130px;">长度变化</th>
+                        <th>说明</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {track_rows}
+                </tbody>
+            </table>"""
 
         # 整体报告HTML
         html = f"""<!DOCTYPE html>
@@ -255,6 +354,10 @@ class ReportGenerator:
 
     <h3>缺陷详情（共 {defect_count} 项）</h3>
     {defect_cards_html if defect_cards_html else '<p style="color:#27ae60; font-size:16px;">✅ 未发现缺陷记录。</p>'}
+
+    {acceptance_html}
+
+    {tracking_html}
 
     {f'<h3>备注</h3><p>{config.notes}</p>' if config.notes else ''}
 

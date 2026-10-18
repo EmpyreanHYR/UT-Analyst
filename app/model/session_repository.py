@@ -211,6 +211,28 @@ class SessionRepository:
             ).fetchall()
         return [dict(row) for row in rows]
 
+    def list_all_defects(self, workpiece: str | None = None) -> list[dict[str, Any]]:
+        """跨会话列出缺陷记录，可按工件名筛选。
+
+        返回的每条记录会附带所属会话的开始时间（`session_started_at`）与工件名
+        （`workpiece`），便于调用方按检测先后排序或做跨会话归组。
+        """
+        query = """
+            SELECT defects.*,
+                   detection_sessions.started_at AS session_started_at,
+                   detection_sessions.workpiece AS workpiece
+            FROM defects
+            JOIN detection_sessions ON detection_sessions.id = defects.session_id
+        """
+        parameters: tuple[Any, ...] = ()
+        if workpiece:
+            query += " WHERE detection_sessions.workpiece = ?"
+            parameters = (workpiece,)
+        query += " ORDER BY detection_sessions.started_at, defects.timestamp, defects.record_uid"
+        with self._lock:
+            rows = self._connection.execute(query, parameters).fetchall()
+        return [dict(row) for row in rows]
+
     def add_frame_chunk(
         self,
         session_id: str,
