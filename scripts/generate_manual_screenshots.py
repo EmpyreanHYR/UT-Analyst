@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import tempfile
 import sys
 from pathlib import Path
@@ -11,9 +12,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 import numpy as np
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QPainter, QPixmap
-from PyQt5.QtWidgets import QApplication, QMenu
+from PyQt5.QtCore import QLineF, QPoint, QPointF, QRect, Qt
+from PyQt5.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
+from PyQt5.QtWidgets import QApplication, QGroupBox, QMenu
 
 from app.common.auth import AuthService, Role
 from app.common.report_generator import ReportConfig, ReportGenerator
@@ -560,6 +561,199 @@ def generate_feature_screenshots(app: QApplication) -> None:
     tracking.close()
 
 
+_ANNOTATION_COLOR = QColor(255, 255, 255)
+_ANNOTATION_LABEL_COLOR = QColor(10, 14, 20, 200)
+
+
+def find_group_box(window: MainWindow, title: str):
+    """按标题找到控制面板里的分组框。"""
+    for box in window.findChildren(QGroupBox):
+        if box.title() == title:
+            return box
+    return None
+
+
+def plot_area(window: MainWindow) -> QRect:
+    """A-Scan 绘图区在主窗口内的像素范围。"""
+    plot = window.aScanPlot
+    scene_rect = plot.getViewBox().sceneBoundingRect()
+    top_left = plot.mapTo(window, plot.mapFromScene(scene_rect.topLeft().toPoint()))
+    bottom_right = plot.mapTo(window, plot.mapFromScene(scene_rect.bottomRight().toPoint()))
+    return QRect(top_left, bottom_right).normalized()
+
+
+def window_point(window: MainWindow, x_value: float, y_value: float) -> QPoint:
+    """把 A-Scan 数据坐标换算成主窗口内的像素坐标。"""
+    plot = window.aScanPlot
+    scene_point = plot.getViewBox().mapViewToScene(QPointF(x_value, y_value))
+    return plot.mapTo(window, plot.mapFromScene(scene_point.toPoint()))
+
+
+def draw_arrow(painter: QPainter, start: QPoint, end: QPoint, head: int = 13) -> None:
+    """画一条白色粗箭头，箭头尖落在 end 处。"""
+    if start == end:
+        return
+    painter.setPen(QPen(_ANNOTATION_COLOR, 3, Qt.SolidLine, Qt.FlatCap))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawLine(start, end)
+    angle = math.radians(QLineF(start, end).angle())
+    points = [QPointF(end)]
+    for delta in (math.radians(150.0), math.radians(-150.0)):
+        points.append(
+            QPointF(
+                end.x() + head * math.cos(angle + delta),
+                end.y() - head * math.sin(angle + delta),
+            )
+        )
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(_ANNOTATION_COLOR)
+    painter.drawPolygon(QPolygonF(points))
+
+
+def draw_callout(painter: QPainter, center: QPoint, text: str) -> QRect:
+    """画一个深底白字的小标签，返回标签矩形，便于在边缘接箭头。"""
+    font = QFont(painter.font())
+    font.setPointSize(12)
+    font.setBold(True)
+    painter.setFont(font)
+    rect = painter.fontMetrics().boundingRect(text).adjusted(-9, -4, 9, 4)
+    rect.moveCenter(center)
+    painter.setPen(Qt.NoPen)
+    painter.setBrush(_ANNOTATION_LABEL_COLOR)
+    painter.drawRoundedRect(rect, 5, 5)
+    painter.setPen(_ANNOTATION_COLOR)
+    painter.drawText(rect, Qt.AlignCenter, text)
+    return rect
+
+
+def build_offscreen_window() -> MainWindow:
+    """建一个离屏显示的主窗口，用于带标注的示意图。"""
+    window, _model = build_main_window()
+    fill_demo_defect_table(window)
+    window.setAttribute(Qt.WA_DontShowOnScreen, True)
+    window.show()
+    for _ in range(4):
+        QApplication.processEvents()
+    return window
+
+
+def prepare_control_dock(window: MainWindow, group_title: str, width: int = 330) -> None:
+    """把右侧控制面板调宽并滚到指定分组，便于插图和实际参数对照。"""
+    window.resizeDocks([window.controlDockWidget], [width], Qt.Horizontal)
+    for _ in range(3):
+        QApplication.processEvents()
+    scroll = window.controlDockWidget.widget()
+    box = find_group_box(window, group_title)
+    if scroll is None or box is None:
+        return
+    bar = scroll.verticalScrollBar()
+    bar.setValue(max(0, min(box.y() - 30, bar.maximum())))
+    for _ in range(3):
+        QApplication.processEvents()
+
+
+def annotate_gate_figure() -> None:
+    """闸门起点、宽度、门限位置示意图。"""
+    window = build_offscreen_window()
+    prepare_control_dock(window, "闸门设置 (Gate A)")
+    area = plot_area(window)
+    start_x = window_point(window, float(window.gateStartLine.value()), 0.0).x()
+    end_x = window_point(window, float(window.gateEndLine.value()), 0.0).x()
+    level_y = window_point(window, 0.0, float(window.thresholdLine.value())).y()
+    gate_rect = QRect(
+        QPoint(min(start_x, end_x), area.top() + int(area.height() * 0.08)),
+        QPoint(max(start_x, end_x), level_y + 28),
+    ).normalized()
+
+    pixmap = window.grab()
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+    painter.setPen(QPen(_ANNOTATION_COLOR, 3))
+    painter.setBrush(Qt.NoBrush)
+    painter.drawRect(gate_rect)
+
+    level_center = QPoint(max(area.left() + 100, gate_rect.left() - 140), level_y - 80)
+    level_label = draw_callout(painter, level_center, "门限")
+    draw_arrow(
+        painter,
+        QPoint(level_center.x(), level_label.bottom() + 8),
+        QPoint(level_center.x(), level_y - 8),
+    )
+
+    width_y = (gate_rect.top() + level_y) // 2
+    width_center = QPoint(min(area.right() - 80, gate_rect.right() + 115), width_y)
+    width_label = draw_callout(painter, width_center, "宽度")
+    draw_arrow(
+        painter,
+        QPoint(width_label.left() - 8, width_y),
+        QPoint(gate_rect.right() + 10, width_y),
+    )
+
+    start_y = area.bottom() - 70
+    start_center = QPoint(gate_rect.left() + 190, start_y)
+    start_label = draw_callout(painter, start_center, "起点")
+    draw_arrow(
+        painter,
+        QPoint(start_label.left() - 8, start_y),
+        QPoint(gate_rect.left() + 10, start_y),
+    )
+    painter.end()
+    pixmap.save(str(IMAGE_DIR / "gate_lines.png"))
+    window.hide()
+
+
+def annotate_cursor_figure() -> None:
+    """A/B 游标线与差值读数对应关系示意图。"""
+    window = build_offscreen_window()
+    prepare_control_dock(window, "游标读数")
+    for _ in range(3):
+        QApplication.processEvents()
+
+    x_values, y_values = window.envelopeCurve.getData()
+    if x_values is None or len(x_values) == 0:
+        x_values, y_values = window.rawSignalCurve.getData()
+    magnitude = np.abs(np.asarray(y_values, dtype=float))
+    head = max(4, int(len(magnitude) * 0.2))
+    tail = int(len(magnitude) * 0.3)
+    index_a = int(np.argmax(magnitude[:head]))
+    index_b = tail + int(np.argmax(magnitude[tail:]))
+    window.cursorLineA.setValue(float(x_values[index_a]))
+    window.cursorLineB.setValue(float(x_values[index_b]))
+    for _ in range(3):
+        QApplication.processEvents()
+
+    area = plot_area(window)
+    pixmap = window.grab()
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.Antialiasing, True)
+
+    cursor_y = area.top() + int(area.height() * 0.62)
+    a_x = window_point(window, float(x_values[index_a]), 0.0).x()
+    b_x = window_point(window, float(x_values[index_b]), 0.0).x()
+    right_limit = area.right() - 85
+    label_a = draw_callout(painter, QPoint(min(a_x + 130, right_limit), cursor_y), "游标 A")
+    draw_arrow(painter, QPoint(label_a.left() - 8, cursor_y), QPoint(a_x + 10, cursor_y))
+    label_b = draw_callout(painter, QPoint(min(b_x + 130, right_limit), cursor_y), "游标 B")
+    draw_arrow(painter, QPoint(label_b.left() - 8, cursor_y), QPoint(b_x + 10, cursor_y))
+
+    box = find_group_box(window, "游标读数")
+    if box is not None:
+        rect = QRect(box.mapTo(window, QPoint(0, 0)), box.size()).adjusted(-6, -6, 6, 6)
+        if window.rect().contains(rect):
+            painter.setPen(QPen(_ANNOTATION_COLOR, 3))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawRoundedRect(rect, 8, 8)
+    painter.end()
+    pixmap.save(str(IMAGE_DIR / "cursor_ab.png"))
+    window.hide()
+
+
+def generate_annotation_screenshots() -> None:
+    """重出两张带说明标注的 A-Scan 示意图。"""
+    annotate_gate_figure()
+    annotate_cursor_figure()
+
+
 def main() -> None:
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     app = QApplication([])
@@ -567,6 +761,7 @@ def main() -> None:
     waveform_pixmap = generate_main_screenshots(app)
     generate_dialog_screenshots(app, waveform_pixmap)
     generate_feature_screenshots(app)
+    generate_annotation_screenshots()
     print(f"Screenshots written to {IMAGE_DIR}")
 
 

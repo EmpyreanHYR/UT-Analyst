@@ -159,6 +159,7 @@ TEXMFVAR=/tmp/texmf-var TEXMFHOME=/tmp/texmf-home xelatex main.tex
   - **跨会话缺陷跟踪**：按深度归组历次会话的缺陷记录，列出重复出现位置与变化量
 - 缺陷表：
   - 末列 `判定` 显示每条记录的等级与结论（形如 `Ⅱ级 · 合格`）
+- 配色：深色底 + 橙色强调。分组标题、面板标题、绘图标题、菜单高亮和右侧定量 / 游标 / 校准读数都用橙色，正文用灰白；合格与不合格仍在统计面板用绿、红显示，橙色只表示“标题”和“提示”。表格隔行底色改成略亮的深灰（`TABLE_ROW_COLOR`），不再沿用系统默认的浅色隔行底。
 
 ### 4.2 波形图交互
 
@@ -350,7 +351,8 @@ app/
     auth.py                    # 本地用户、角色、审计和报告签名
     unit_converter.py          # 单位换算工具
     logging_config.py          # 日志配置
-    theme.py                   # 主题样式
+    theme.py                   # 主题配色与样式表（深色底 + 橙色强调）
+    plot_style.py              # 绘图控件统一标题配色
     report_generator.py        # 报告生成器
     report_exporter.py         # HTML/PDF 导出与哈希
     shortcut_manager.py        # 快捷键管理器
@@ -371,7 +373,7 @@ main.py                        # 应用入口
 
 ## 9. 说明书截图维护
 
-在可运行 PyQt5 与 PyQtGraph 的环境中执行以下命令，可自动生成登录、参数面板、频谱、统计、缺陷表、验收标准与判定明细、跨会话跟踪、多闸门/TCG、B/C-Scan、回放、报告和审计截图：
+在可运行 PyQt5 与 PyQtGraph 的环境中执行以下命令，可自动生成登录、参数面板、频谱、统计、缺陷表、验收标准与判定明细、跨会话跟踪、多闸门/TCG、B/C-Scan、回放、报告、审计以及闸门/游标标注截图：
 
 ```powershell
 $env:QT_QPA_PLATFORM = "windows"
@@ -384,6 +386,12 @@ python scripts/generate_manual_screenshots.py
 验收判定与跨会话跟踪的截图使用脚本里的示例缺陷数据（`DEMO_DEFECT_SNAPSHOTS` / `DEMO_TRACKING_RECORDS`），数值由真实的规则引擎算出，修改示例数据后重新执行即可更新插图。
 
 缺陷表插图（`defect.png`）也由脚本重出：表格内容来自 `build_main_window` 追加的示例记录（28.4、54.0、72.5、95.0 mm），`fill_demo_defect_table` 按深度回填“判定”列，`capture_defect_table` 再把右键菜单压到“波幅”列上合成一张图。表格、统计面板和报告因此共用同一组示例数值。
+
+配色改动会影响**全部**插图：改了 `app/common/theme.py`（色值、样式表）或 `app/common/plot_style.py`（绘图标题配色）之后，必须重跑一次脚本，否则说明书里边框、标题颜色会和实际界面对不上。
+
+`gate_lines.png` 与 `cursor_ab.png` 的白线标注也由脚本绘制（`generate_annotation_screenshots`）：闸门框、门限、宽度、起点等位置按 A-Scan 的实时数据坐标折算成像素，游标位置取包络曲线的峰，所以标注始终和当前界面数值一致，不需要再用图像编辑器手工画。
+
+`report.png`（完整检测报告）是早期手工渲染的整页报告图，脚本不生成，仍保留改动前的绘图标题颜色；其余插图都由脚本重出。
 
 少数插图依赖运行时数据，两次执行之间会有轻微差别，属于正常现象：`login_dialog`、`fft_panel`、`bscan_panel`、`cscan_panel`、`audit_dialog`、`report_config_dialog`、`control_panel`（随机信号、事件时间戳、个位数像素差异）。这类差异与功能无关，提交前可以还原。
 

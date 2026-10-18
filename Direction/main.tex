@@ -163,15 +163,10 @@
 % 带前缀的完整作者显示（“作者：”不参与替换）
 \newcommand{\BasicAuthor}{作者：\\\PureAuthors}
 
-% 修订记录的作者（仅处理纯作者列表，换行转逗号）
-\usepackage{xstring}
 \usepackage{cleveref}
 \crefname{table}{表}{表}
 \crefname{figure}{图}{图}
 \crefname{equation}{式}{式}
-\newcommand{\RevisedAuthor}{%
-	\StrSubstitute{\PureAuthors}{\\}{, }% 只替换作者间的换行
-}
 
 % 设置页眉样式
 \fancypagestyle{plain}{
@@ -200,44 +195,6 @@
 	\newpage
 	\tableofcontents
 	
-	\newpage
-	% 文件修订记录章节
-	\section*{文件修订记录}
-	\addcontentsline{toc}{section}{文件修订记录}  % 手动添加到目录
-	
-	\renewcommand{\arraystretch}{1.5} % 调整行高为原来的 1.5 倍
-	
-	\begin{center}
-		\begin{tabular}{ | m{1.5cm}<{\centering}|m{4cm}<{\centering} | m{5cm}<{\centering} | m{3.5cm}<{\centering} |}
-			\hline
-			版本号 & 生成日期 & 作者 & 修订内容 \\ % 表头
-			\hline
-			\Version & 2026年10月10日 & \RevisedAuthor & 初始版本 \\ % 第一行
-			\hline
-			\Version & 2026年10月18日 & \RevisedAuthor & 补充验收标准判定、指示长度测量、耦合监测、跨会话跟踪与缺陷类型提示等章节，并校订快捷键说明 \\ % 第二行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-			&  &  &  \\ % 空行
-			\hline
-		\end{tabular}
-	\end{center}
 	
 	
 	%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%

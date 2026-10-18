@@ -106,6 +106,18 @@
 - 新增插图 `acceptance_dialog.png`、`acceptance_detail.png`、`tracking_dialog.png`，由 `scripts/generate_manual_screenshots.py` 的 `generate_feature_screenshots` 用真实规则引擎生成（示例数据在脚本顶部常量里）。
 - 同步重出会受新功能影响的既有插图：`ui_main.png`、`workspace_analysis.png`、`defect.png`、`statistics_panel.png`、`report_preview.png`、`replay_panel.png`。其中 `defect.png` 原来是手工拼的图，现在改由脚本生成（`fill_demo_defect_table` 填判定、`capture_defect_table` 把右键菜单压在“波幅”列上），因此插图和四列缺陷表一致；`replay_panel.png` 原图右侧被裁掉，重出后会话名完整。演示数据也统一成同一组缺陷（28.4/54.0/72.5/95.0 mm），避免统计面板与缺陷表对不上。未重排的插图（`login_dialog`、`fft_panel`、`bscan_panel`、`cscan_panel`、`audit_dialog`、`report_config_dialog`、`control_panel`）差异来自随机信号、时间戳或个位数像素，保持原样以减少无谓改动。
 - 顺手修正 `2.10 缺陷记录与表格管理` 两处与界面不符的描述：历史行改为“按编号、深度和波幅写入”，并说明末列“判定”的含义；右键菜单实际只有删除选中记录、清空历史两项，原文多写的“重编号”已删除。
-- `Direction/main.tex` 加了 `\xeCJKDeclareCharClass{CJK}{"2160 -> "217F}`：否则正文里的 `Ⅰ Ⅱ Ⅲ` 会落到缺字形的西文字体，编译时静默丢字。同时补了一行修订记录。
-- 说明书现为 37 页，双次 `xelatex` 无报错、无缺字、无未定义引用。
+- `Direction/main.tex` 加了 `\xeCJKDeclareCharClass{CJK}{"2160 -> "217F}`：否则正文里的 `Ⅰ Ⅱ Ⅲ` 会落到缺字形的西文字体，编译时静默丢字。
+- 说明书现为 36 页，双次 `xelatex` 无报错、无缺字、无未定义引用。
 - `README.md` 同步：§1.4/§1.8 功能清单、§3 说明书路径与前言注意事项、§4.1 界面布局、§5.10 判定查看步骤、新增 §5.12–§5.14 操作流程、§7 项目结构、§8 注意事项、§9 截图维护。
+
+### 界面配色与说明书清理（验收后补充）
+
+- **背景**：原来一屏之内标题、正文、数值都是同一档灰白，长时间盯屏时重要信息不够跳；另外 V1.0 属于初始版本，说明书里的版本修订记录只有“初始版本”和“本次内容补充”两行，对读者没有实际信息量。
+- `app/common/theme.py`：新增橙色强调色 `ACCENT_COLOR`（`#ffa657`），正文字色由 `#d0d7de` 提亮到 `#e6edf5`（`TEXT_COLOR`）。样式表改用 `string.Template`，色值只在模块顶部写一次。
+- 橙色用在**标题与关键读数**上：分组标题（`QGroupBox::title`）、面板标题（`QDockWidget`）、菜单与菜单项高亮、工具栏按钮悬停、绘图标题，以及挂了 `keyValueLabel` 样式名的读数（主界面定量区、游标区、校准区，统计面板的统计值与验收标准）。合格 / 不合格仍用绿、红结论色，橙色只表示“标题”和“提示”，两种含义不混用。
+- 顺带修掉一处深色主题下的可读性问题：缺陷表开了隔行变色，但样式表没有给出隔行底色，Qt 就用系统调色板的浅色隔行底，于是奇数行变成“浅底浅字”，几乎看不见。现补 `TABLE_ROW_COLOR`（`#151d26`）与 `QTableWidget` 隔行底色规则，隔行仍能区分、文字清楚。
+- 面板标题只设文字色，没加背景和边框：试过给 `QDockWidget::title` 加内边距，窄面板的标题会被提前省略成“……”，所以放弃（样式表里留了注释）。
+- 新增 `app/common/plot_style.py`，统一绘图标题配色；各面板创建 `PlotWidget` 改走 `create_plot_widget()`，标题字符串不再重复写两遍。
+- 说明书里的 `gate_lines.png`（闸门参数）与 `cursor_ab.png`（A/B 游标）原来是手工标注的截图，这次改为脚本生成：`scripts/generate_manual_screenshots.py` 新增 `generate_annotation_screenshots()`，先把 A-Scan 的数据坐标换算成窗口像素，再用 `QPainter` 画白色标注框、箭头和标签，游标位置取包络曲线峰值。标注随界面数值走，不会再出现“图上的闸门位置和面板参数不一致”的问题，也不需要图像编辑器。`2_implosion.tex` 里该图的标题由“起点、终点和门限”改为“起点、宽度和门限”，与面板上的 `起点 Start / 宽度 Width / 门限 Level` 三个参数对齐。
+- 说明书删除“文件修订记录”一节（连同 `\addcontentsline` 目录项、`\RevisedAuthor` 宏与 `\usepackage{xstring}`），封面与页眉仍保留 `V1.0`；正文页数由 37 页变为 36 页。
+- 配色是全局样式，所有插图都受影响，因此 `Direction/image/` 下由脚本生成的插图全部重出；`README.md` §4.1 补了配色说明，§7 项目结构补了新文件，§9 补了“改主题后必须重出全部插图”的维护约定。
