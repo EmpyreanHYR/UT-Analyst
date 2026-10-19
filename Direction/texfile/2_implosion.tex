@@ -36,18 +36,17 @@
 \end{figure}
 \begin{figure}[h]
 	\centering
-	\includegraphics[width=0.9\linewidth]{image/fft_panel.png}
+	\includegraphics[width=0.68\linewidth]{image/fft_panel.png}
 	\caption{频谱分析面板}
 	\label{fig:fft_panel}
 \end{figure}
 
 \begin{figure}[htbp]
 	\centering
-	\includegraphics[width=0.96\linewidth]{image/statistics_panel.png}
+	\includegraphics[width=0.72\linewidth]{image/statistics_panel.png}
 	\caption{缺陷统计与 DAC 曲线面板}
 	\label{fig:statistics_panel}
 \end{figure}
-\FloatBarrier
 
 \subsection{检测前的现场准备}
 \par
@@ -65,7 +64,7 @@
 \par
 参数修改后点击“应用参数”使其生效。增益用于补偿材料衰减、耦合损失和探头灵敏度差异，调整时应保证参考回波具有足够信噪比，同时避免始波、底波或缺陷波出现削顶。声程决定横轴显示的最大往返声程，设置过小会截断深部回波，设置过大则降低有效显示分辨率。探头频率与试块、材料和缺陷尺寸匹配；刷新间隔用于控制界面更新速度，扫查速度较快时使用较小间隔，精读波形时使用较大间隔或冻结。常用参数范围见\cref{tab:detection_parameters}。
 \par
-控制面板的完整布局如\cref{fig:control_panel}所示，上半部分用于参数和采集控制，下半部分用于闸门、定量结果、游标和校准参数。
+控制面板的完整布局如\cref{fig:control_panel}所示。面板内容在一个竖直滚动区里依次排列，为便于在纸面上看清各分组，图中把它排成左右两列：左列是检测参数、记录控制和采集控制，右列是闸门设置、缺陷定量数据、游标读数和校准参数。
 
 \begin{table}[htbp]
 	\centering
@@ -88,7 +87,7 @@
 \begin{figure}[htbp]
 	\centering
 	\includegraphics[width=0.97\textwidth]{image/control_panel.png}
-	\caption{检测参数、采集控制、闸门、定量和游标读数面板}
+	\caption{检测参数、记录与采集控制、闸门、定量、游标和校准参数面板}
 	\label{fig:control_panel}
 \end{figure}
 
@@ -110,6 +109,15 @@
 	\label{eq:depth_measurement}
 \end{equation}
 当检测浅表缺陷时，零点延迟对深度结果影响显著；当检测深部缺陷时，应优先确认声速和底波位置。校准参数可通过“设置”菜单保存为 JSON，下一次检测时直接加载。
+\par
+声速校准、零点校准以及校准参数的保存与加载都放在“设置”菜单里，如\cref{fig:settings_menu}所示。声速校准先输入实测往返时间和试块已知厚度，程序扣除当前零点延迟后按\cref{eq:depth_measurement}的变形算出声速；零点校准则用已知声速和实测时间反推延迟。两项完成后点击“应用参数”写入当前参数。存下来的校准文件只有保存时间、声速和零点延迟三项，换探头、换楔块或改变检测方向后应重新校准，不能直接把上一份文件套用到新工况。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.30\textwidth]{image/settings_menu.png}
+	\caption{“设置”菜单中的声速校准、零点校准与校准参数存取}
+	\label{fig:settings_menu}
+\end{figure}
 
 \subsection{采集控制与波形观察}
 \par
@@ -223,6 +231,16 @@ FFT 将时域波形转换为频率谱，用于检查探头主频、频带宽度�
 	\bar{x}[n]=\frac{1}{M}\sum_{i=1}^{M}x_i[n].
 \end{equation}
 随机噪声标准差约降为原来的 $1/\sqrt{M}$，但平均帧数过大时，扫查位置变化或耦合波动会造成波形模糊。细扫稳定区域可使用 8$\sim$16 帧，快速移动或定位缺陷时使用 2$\sim$4 帧。
+\par
+数字滤波器与信号平均的参数区如\cref{fig:filter_average}所示。滤波类型、低高频截止频率和滤波器阶数在同一个分组里设置，右侧按钮分别用于应用滤波和复位滤波；信号平均分组只有启用勾选框和平均帧数两项，改动后立即作用于后续帧。
+
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.62\linewidth]{image/filter_average.png}
+	\caption{数字滤波器的类型、截止频率与阶数，以及信号平均的启用状态与帧数}
+	\label{fig:filter_average}
+\end{figure}
+\FloatBarrier
 
 \subsection{缺陷统计与 DAC}
 \par
@@ -480,8 +498,15 @@ B-Scan 的连续回波变化如\cref{fig:bscan_panel}所示，C-Scan 的幅值�
 	Ctrl+L & 显示或隐藏游标标签 \\
 \end{longtable}
 
+\begin{figure}[htbp]
+	\centering
+	\includegraphics[width=0.42\textwidth]{image/shortcut_help.png}
+	\caption{按 F1 调出的快捷键帮助窗口}
+	\label{fig:shortcut_help}
+\end{figure}
+
 \par
-采集成像控制一类在各个阶段都会用到，Ctrl+Enter 和 F2 控制检测的开始与停止，需要仔细观察波形时用 F3 冻结或解冻当前画面，停止扫查时用 F4 保留单独一帧，F5 和 F6 分别打开或收起频谱分析与缺陷统计面板；对按键不确定时可以按 F1 调出快捷键帮助窗口，窗口中列出的条目与当前生效的绑定一致。文件与报告一类负责数据的存取和输出，Ctrl+O 打开已保存的数据文件，Ctrl+S 保存当前波形，Ctrl+R 在工件、标准、人员和备注等信息填写完整后生成检测报告。
+采集成像控制一类在各个阶段都会用到，Ctrl+Enter 和 F2 控制检测的开始与停止，需要仔细观察波形时用 F3 冻结或解冻当前画面，停止扫查时用 F4 保留单独一帧，F5 和 F6 分别打开或收起频谱分析与缺陷统计面板；对按键不确定时可以按 F1 调出快捷键帮助窗口，窗口中列出的条目与当前生效的绑定一致，如\cref{fig:shortcut_help}所示。文件与报告一类负责数据的存取和输出，Ctrl+O 打开已保存的数据文件，Ctrl+S 保存当前波形，Ctrl+R 在工件、标准、人员和备注等信息填写完整后生成检测报告。
 \par
 波形测量一类用于读数与比对，Ctrl+A 按当前数据范围自动缩放波形，使幅值不同的波形都能完整显示，Ctrl+P 清除停留在波形上的峰值标记，Ctrl+G 把当前波形捕获为参考，此后采集到的波形会与参考叠合显示，比对结束后按 Ctrl+Shift+G 清除参考波形。记录控制一类与缺陷表配合使用，Ctrl+Shift+R 开始记录，Delete 删除表格中选中的历史记录，Ctrl+Shift+D 清空全部历史记录，删除和清空都会写入审计事件。视图显示一类只影响画面呈现，Ctrl+Shift+H 显示或隐藏网格，Ctrl+L 显示或隐藏游标标签。
 

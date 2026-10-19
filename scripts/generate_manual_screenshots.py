@@ -13,8 +13,8 @@ if str(PROJECT_ROOT) not in sys.path:
 
 import numpy as np
 from PyQt5.QtCore import QLineF, QPoint, QPointF, QRect, Qt
-from PyQt5.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF
-from PyQt5.QtWidgets import QApplication, QGroupBox, QMenu
+from PyQt5.QtGui import QColor, QFont, QPainter, QPen, QPixmap, QPolygonF, QRegion
+from PyQt5.QtWidgets import QApplication, QGroupBox, QMenu, QSplitter
 
 from app.common.auth import AuthService, Role
 from app.common.report_generator import ReportConfig, ReportGenerator
@@ -28,12 +28,14 @@ from app.model.ultrasonic_model import UltrasonicSignalModel
 from app.view.acceptance_dialog import AcceptanceCriteriaDialog
 from app.view.advanced_ut_panel import AdvancedUTPanel
 from app.view.audit_dialog import AuditDialog
+from app.view.fft_panel import FFTPanel
 from app.view.login_dialog import LoginDialog
 from app.view.main_window import MainWindow
 from app.view.replay_panel import ReplayPanel
 from app.view.report_config_dialog import ReportConfigDialog
 from app.view.report_preview_window import ReportPreviewWindow
 from app.view.scan_panel import ScanPanel
+from app.view.shortcut_help_dialog import ShortcutHelpDialog
 from app.view.statistics_panel import StatisticsPanel
 from app.view.tracking_dialog import TrackingDialog
 
@@ -233,27 +235,101 @@ def capture_defect_table(window: MainWindow) -> None:
     combined.save(str(IMAGE_DIR / "defect.png"))
 
 
+def render_widget(widget) -> QPixmap:
+    """显示控件、等布局稳定后截图。
+
+    注意不要在这里调用 repaint()：子控件的重绘会被裁剪到可见区域，
+    随后 grab() 反而会把不可见的部分画成空白。
+    """
+    if not widget.isVisible():
+        widget.show()
+    for _ in range(6):
+        QApplication.processEvents()
+    return widget.grab()
+
+
+def patch_widget(
+    pixmap: QPixmap,
+    window,
+    child,
+    occluders: tuple = (),
+) -> None:
+    """把子控件的完整重绘结果贴回窗口截图。
+
+    窗口较大、靠坞面板叠放时，Qt 生成的窗口截图会复用窗口自己的绘制缓存，
+    局部区域可能只留下背景色。单独重绘子控件可以绕过这一点，再按子控件在
+    窗口中的位置贴回窗口截图；occluders 给出盖在上面的靠坞面板，避免把被
+    遮住的内容也贴出来。
+    """
+    position = child.mapTo(window, QPoint(0, 0))
+    window_rect = QRect(QPoint(0, 0), pixmap.size())
+    area = QRegion(QRect(QPoint(0, 0), child.size()))
+    for other in occluders:
+        if not other.isVisible():
+            continue
+        other_rect = QRect(
+            other.mapTo(window, QPoint(0, 0)),
+            other.size(),
+        ).translated(-position)
+        area = area.subtracted(QRegion(other_rect))
+
+    child_pixmap = render_widget(child)
+    painter = QPainter(pixmap)
+    for region in area.rects():
+        target = region.translated(position).intersected(window_rect)
+        if target.isEmpty():
+            continue
+        source = QRect(target.topLeft() - position, target.size())
+        painter.drawPixmap(target.topLeft(), child_pixmap.copy(source))
+    painter.end()
+
+
 def capture(widget, filename: str) -> None:
     """Render and save a widget screenshot."""
-    widget.show()
-    for _ in range(4):
-        QApplication.processEvents()
-    widget.grab().save(str(IMAGE_DIR / filename))
+    render_widget(widget).save(str(IMAGE_DIR / filename))
     widget.hide()
 
 
 def capture_top_region(widget, filename: str, height: int) -> None:
     """Render a widget and save only its top strip, for close-up figures."""
-    widget.show()
-    for _ in range(4):
-        QApplication.processEvents()
-    pixmap = widget.grab()
+    pixmap = render_widget(widget)
     widget.hide()
     band = min(height, pixmap.height())
     pixmap.copy(0, 0, pixmap.width(), band).save(str(IMAGE_DIR / filename))
 
 
-def build_main_window() -> tuple[MainWindow, UltrasonicSignalModel]:
+def capture_region(widget, filename: str, rect: QRect) -> None:
+    """Render a widget and save only the given area, for small close-up figures."""
+    pixmap = render_widget(widget)
+    target = rect.intersected(QRect(QPoint(0, 0), pixmap.size()))
+    pixmap.copy(target).save(str(IMAGE_DIR / filename))
+
+
+def capture_group_region(
+    widget,
+    titles: list[str],
+    filename: str,
+    padding: int = 10,
+) -> None:
+    """Save just the area covered by the named group boxes, for parameter close-ups."""
+    pixmap = render_widget(widget)
+    area: QRect | None = None
+    for box in widget.findChildren(QGroupBox):
+        if box.title() not in titles:
+            continue
+        box_rect = QRect(box.mapTo(widget, QPoint(0, 0)), box.size())
+        area = box_rect if area is None else area.united(box_rect)
+    if area is None:
+        return
+    pixmap = widget.grab()
+    target = area.adjusted(-padding, -padding, padding, padding).intersected(
+        QRect(QPoint(0, 0), pixmap.size())
+    )
+    pixmap.copy(target).save(str(IMAGE_DIR / filename))
+    widget.hide()
+
+
+def build_main_window(layout_dir: Path) -> tuple[MainWindow, UltrasonicSignalModel]:
     """Create a populated main window without starting a persistent session."""
     model = UltrasonicSignalModel()
     model.updateParameters(
@@ -265,7 +341,8 @@ def build_main_window() -> tuple[MainWindow, UltrasonicSignalModel]:
             "gateEndMm": 95.0,
         }
     )
-    window = MainWindow()
+    # 布局目录放在临时目录里，避免上一次运行保存的窗口布局影响插图结果。
+    window = MainWindow(layout_config_dir=layout_dir)
     window.resize(1600, 1000)
 
     frame = model.generateFrame()
@@ -303,38 +380,145 @@ def build_main_window() -> tuple[MainWindow, UltrasonicSignalModel]:
     return window, model
 
 
-def generate_main_screenshots(app: QApplication):
-    """Capture the main workspace and its principal controls."""
-    window, model = build_main_window()
-    fill_demo_defect_table(window)
-    capture(window, "ui_main.png")
+def top_level_group_boxes(widget) -> list[QGroupBox]:
+    """列出未被其它分组框包含的分组框，避免统计嵌套分组时算出错误的空隙。"""
+    boxes: list[QGroupBox] = []
+    for box in widget.findChildren(QGroupBox):
+        # 这里只看“没有被显式隐藏”；控制面板内容挂在未显示的靠坞面板下，
+        # isVisible() 会一律返回 False，用 isHidden() 才能判断布局里真正生效的分组。
+        if box.isHidden():
+            continue
+        parent = box.parentWidget()
+        nested = False
+        while parent is not None and parent is not widget:
+            if isinstance(parent, QGroupBox):
+                nested = True
+                break
+            parent = parent.parentWidget()
+        if not nested:
+            boxes.append(box)
+    return sorted(boxes, key=lambda item: item.mapTo(widget, QPoint(0, 0)).y())
 
+
+def capture_control_panel(window: MainWindow) -> None:
+    """把控制面板按分组框之间的空隙切成左右两列，凑成一张窄而长的插图。"""
     control_scroll = window.controlDockWidget.widget()
-    if control_scroll is not None:
-        control_content = control_scroll.widget()
-        if control_content is not None:
-            control_content.resize(control_content.sizeHint())
-            control_content.show()
-            for _ in range(4):
-                QApplication.processEvents()
-            source = control_content.grab()
-            half_height = (source.height() + 1) // 2
-            left = source.copy(0, 0, source.width(), half_height)
-            right = source.copy(
-                0,
-                half_height,
-                source.width(),
-                source.height() - half_height,
-            )
-            gap = 20
-            combined = QPixmap(source.width() * 2 + gap, half_height)
-            combined.fill(Qt.transparent)
-            painter = QPainter(combined)
-            painter.drawPixmap(0, 0, left)
-            painter.drawPixmap(source.width() + gap, 0, right)
-            painter.end()
-            combined.save(str(IMAGE_DIR / "control_panel.png"))
-            control_content.hide()
+    if control_scroll is None:
+        return
+    control_content = control_scroll.widget()
+    if control_content is None:
+        return
+
+    control_content.resize(control_content.sizeHint())
+    source = render_widget(control_content)
+    # 画布底色取面板自身的背景色，两列不同高度时底纹保持一致。
+    background = source.toImage().pixelColor(4, source.height() - 4)
+
+    boxes = top_level_group_boxes(control_content)
+    gaps: list[tuple[int, int]] = []
+    for previous, current in zip(boxes, boxes[1:]):
+        previous_bottom = (
+            previous.mapTo(control_content, QPoint(0, 0)).y() + previous.height()
+        )
+        current_top = current.mapTo(control_content, QPoint(0, 0)).y()
+        if current_top > previous_bottom:
+            gaps.append((previous_bottom, current_top))
+    split_y = source.height() // 2
+    if gaps:
+        # 取最靠中间的那条空隙，保证切分落在两个分组之间而不是某一行参数上。
+        gap = min(
+            gaps,
+            key=lambda item: abs((item[0] + item[1]) // 2 - source.height() // 2),
+        )
+        split_y = max(1, (gap[0] + gap[1]) // 2)
+
+    left = source.copy(0, 0, source.width(), split_y)
+    right = source.copy(0, split_y, source.width(), source.height() - split_y)
+    gap_width = 20
+    canvas = QPixmap(
+        source.width() * 2 + gap_width,
+        max(left.height(), right.height()),
+    )
+    canvas.fill(background)
+    painter = QPainter(canvas)
+    painter.drawPixmap(0, 0, left)
+    painter.drawPixmap(source.width() + gap_width, 0, right)
+    painter.end()
+    canvas.save(str(IMAGE_DIR / "control_panel.png"))
+
+
+def capture_settings_menu(window: MainWindow) -> None:
+    """抓取“设置”菜单弹出层，用来说明校准参数的入口。"""
+    render_widget(window)
+
+    menu: QMenu = window.settingsMenu
+    menu_bar = window.menuBar()
+    anchor = menu_bar.mapToGlobal(menu_bar.actionGeometry(menu.menuAction()).bottomLeft())
+    menu.popup(anchor)
+    for _ in range(6):
+        QApplication.processEvents()
+    if menu.isVisible():
+        menu.grab().save(str(IMAGE_DIR / "settings_menu.png"))
+        menu.hide()
+    window.hide()
+
+
+def capture_workspace_figure(window: MainWindow) -> None:
+    """波形、频谱与统计三个面板同时展开时的界面插图。"""
+    screen = QApplication.primaryScreen()
+    available_height = screen.availableGeometry().height() if screen else 1080
+    # 窗口高度留出标题栏，避免窗口超出屏幕下沿后局部区域来不及绘制。
+    height = max(900, min(1340, available_height - 60))
+    window.resize(1700, height)
+    window.show()
+    for _ in range(6):
+        QApplication.processEvents()
+
+    window.toggleFFTAction.setChecked(True)
+    window.toggleStatisticsAction.setChecked(True)
+    for _ in range(6):
+        QApplication.processEvents()
+    window.resizeDocks([window.statisticsDockWidget], [620], Qt.Horizontal)
+    window.resizeDocks([window.fftDockWidget], [900], Qt.Vertical)
+    # 频谱面板本身较高，把波形区和缺陷表压到各自的最小高度，三个面板才能都放得下。
+    for splitter in window.centralWidget().findChildren(QSplitter):
+        splitter.setSizes([170, 100])
+    for _ in range(8):
+        QApplication.processEvents()
+
+    pixmap = render_widget(window)
+    # 靠坞面板叠放、且子面板高于可视区域时，窗口截图可能漏画局部内容，
+    # 这里按靠坞层级依次补画一遍（频谱在最下，统计与控制面板盖在上面）。
+    patch_widget(
+        pixmap,
+        window,
+        window.fftPanel,
+        occluders=(window.statisticsDockWidget, window.controlDockWidget),
+    )
+    patch_widget(
+        pixmap,
+        window,
+        window.statisticsPanel,
+        occluders=(window.controlDockWidget,),
+    )
+    control_scroll = window.controlDockWidget.widget()
+    if control_scroll is not None and control_scroll.widget() is not None:
+        patch_widget(pixmap, window, control_scroll.widget())
+    pixmap.save(str(IMAGE_DIR / "workspace_analysis.png"))
+    window.hide()
+
+
+def generate_main_screenshots(app: QApplication, layout_dir: Path):
+    """Capture the main workspace and its principal controls."""
+    window, model = build_main_window(layout_dir)
+    fill_demo_defect_table(window)
+    # 固定控制面板宽度，让主界面插图中的参数区与其它插图保持一致。
+    window.resizeDocks([window.controlDockWidget], [330], Qt.Horizontal)
+    for _ in range(4):
+        QApplication.processEvents()
+    capture(window, "ui_main.png")
+    capture_control_panel(window)
+    capture_settings_menu(window)
 
     frame = model.generateFrame()
     frequencies, magnitude = model.compute_fft(
@@ -348,7 +532,26 @@ def generate_main_screenshots(app: QApplication):
         float(frequencies[int(np.argmax(magnitude))]),
         float(np.max(magnitude)),
     )
-    capture(window.fftPanel, "fft_panel.png")
+
+    # 频谱面板单独建一个实例并给足高度，避免停靠状态把频谱图压扁。
+    # 窗函数固定为汉宁窗，与用来计算的曲线保持一致。
+    fft_panel = FFTPanel()
+    fft_panel.fft_size_spinbox.setValue(1024)
+    fft_panel.window_combo.setCurrentText("汉宁窗")
+    fft_panel.signal_average_checkbox.setChecked(True)
+    fft_panel.signal_average_count_spinbox.setValue(8)
+    fft_panel.update_fft_display(
+        frequencies,
+        magnitude,
+        float(frequencies[int(np.argmax(magnitude))]),
+        float(np.max(magnitude)),
+    )
+    fft_panel.resize(620, 900)
+    capture(fft_panel, "fft_panel.png")
+
+    # 滤波与信号平均两个分组单独取局部插图，便于正文逐项对照参数。
+    capture_group_region(fft_panel, ["数字滤波器", "信号平均"], "filter_average.png")
+    fft_panel.close()
 
     records = [
         (28.4, 0.72),
@@ -397,18 +600,20 @@ def generate_main_screenshots(app: QApplication):
     )
     capture(statistics_panel, "statistics_panel.png")
 
-    window.toggleFFTAction.setChecked(True)
-    window.toggleStatisticsAction.setChecked(True)
-    capture(window, "workspace_analysis.png")
+    # 波形、频谱与统计三个面板同时展开：统计面板固定在左侧，底部频谱面板给足高度，
+    # 中间区域压到自己的最小高度，保证三块内容都不被窗口边缘裁掉。
+    capture_workspace_figure(window)
     capture_defect_table(window)
 
-    advanced = window.advancedUTPanel
+    advanced = AdvancedUTPanel()
     advanced.gate_rows["B"].enabled_checkbox.setChecked(True)
     advanced.gate_rows["B"].set_result(True, 0.82)
     advanced.gate_rows["C"].enabled_checkbox.setChecked(True)
     advanced.gate_rows["C"].set_result(False, 0.48)
     advanced.tcg_enabled_checkbox.setChecked(True)
+    advanced.resize(470, 640)
     capture(advanced, "advanced_ut_panel.png")
+    advanced.close()
 
     scan_panel = ScanPanel()
     scan_panel.resize(1200, 650)
@@ -426,17 +631,14 @@ def generate_main_screenshots(app: QApplication):
     c_scan[5, 1] = 0.48
     scan_panel.update_b_scan(b_scan)
     scan_panel.update_c_scan(c_scan)
-    window.scanPanel.update_b_scan(b_scan)
-    window.scanPanel.update_c_scan(c_scan)
     scan_panel.tabs.setCurrentIndex(0)
     capture(scan_panel, "bscan_panel.png")
     scan_panel.tabs.setCurrentIndex(1)
     capture(scan_panel, "cscan_panel.png")
+    scan_panel.close()
 
-    window.toggleAdvancedUTAction.setChecked(True)
-    window.toggleScanPanelAction.setChecked(True)
-
-    window.replayPanel.set_sessions(
+    replay_panel = ReplayPanel()
+    replay_panel.set_sessions(
         [
             {
                 "id": "session-demo",
@@ -445,10 +647,18 @@ def generate_main_screenshots(app: QApplication):
             }
         ]
     )
-    window.replayPanel.set_frame_count(80)
-    window.replayPanel.frame_slider.setValue(37)
-    window.toggleReplayAction.setChecked(True)
-    capture(window.replayPanel, "replay_panel.png")
+    replay_panel.set_frame_count(80)
+    replay_panel.frame_slider.setValue(37)
+    replay_panel.resize(760, 200)
+    capture(replay_panel, "replay_panel.png")
+    replay_panel.close()
+
+    # 快捷键帮助窗口的内容直接来自快捷键管理器，可与正文的快捷键表互相印证。
+    help_dialog = ShortcutHelpDialog(window.shortcutManager.get_shortcut_tips())
+    help_dialog.resize(560, 1005)
+    capture(help_dialog, "shortcut_help.png")
+    help_dialog.close()
+
     waveform_pixmap = window.aScanPlot.grab()
     window.close()
     return waveform_pixmap
@@ -544,7 +754,7 @@ def generate_feature_screenshots(app: QApplication) -> None:
             "depth_min_mm": 28.4,
             "depth_max_mm": 95.0,
             "depth_mean_mm": 62.5,
-            "amplitude_mean": 0.71,
+            "amplitude_mean": 0.7075,
             "depth_distribution": {"20-30": 1, "50-60": 1, "70-80": 1, "90-100": 1},
             "amplitude_distribution": {"50-60": 1, "60-70": 1, "70-80": 1, "90-100": 1},
             "acceptance": build_demo_acceptance(DEMO_DEFECT_SNAPSHOTS),
@@ -556,7 +766,7 @@ def generate_feature_screenshots(app: QApplication) -> None:
     panel.close()
 
     tracking = TrackingDialog(track_defects(DEMO_TRACKING_RECORDS).to_dict())
-    tracking.resize(840, 260)
+    tracking.resize(980, 300)
     capture(tracking, "tracking_dialog.png")
     tracking.close()
 
@@ -626,14 +836,12 @@ def draw_callout(painter: QPainter, center: QPoint, text: str) -> QRect:
     return rect
 
 
-def build_offscreen_window() -> MainWindow:
+def build_offscreen_window(layout_dir: Path) -> MainWindow:
     """建一个离屏显示的主窗口，用于带标注的示意图。"""
-    window, _model = build_main_window()
+    window, _model = build_main_window(layout_dir)
     fill_demo_defect_table(window)
     window.setAttribute(Qt.WA_DontShowOnScreen, True)
-    window.show()
-    for _ in range(4):
-        QApplication.processEvents()
+    render_widget(window)
     return window
 
 
@@ -652,9 +860,9 @@ def prepare_control_dock(window: MainWindow, group_title: str, width: int = 330)
         QApplication.processEvents()
 
 
-def annotate_gate_figure() -> None:
+def annotate_gate_figure(layout_dir: Path) -> None:
     """闸门起点、宽度、门限位置示意图。"""
-    window = build_offscreen_window()
+    window = build_offscreen_window(layout_dir)
     prepare_control_dock(window, "闸门设置 (Gate A)")
     area = plot_area(window)
     start_x = window_point(window, float(window.gateStartLine.value()), 0.0).x()
@@ -702,9 +910,9 @@ def annotate_gate_figure() -> None:
     window.hide()
 
 
-def annotate_cursor_figure() -> None:
+def annotate_cursor_figure(layout_dir: Path) -> None:
     """A/B 游标线与差值读数对应关系示意图。"""
-    window = build_offscreen_window()
+    window = build_offscreen_window(layout_dir)
     prepare_control_dock(window, "游标读数")
     for _ in range(3):
         QApplication.processEvents()
@@ -713,10 +921,22 @@ def annotate_cursor_figure() -> None:
     if x_values is None or len(x_values) == 0:
         x_values, y_values = window.rawSignalCurve.getData()
     magnitude = np.abs(np.asarray(y_values, dtype=float))
-    head = max(4, int(len(magnitude) * 0.2))
-    tail = int(len(magnitude) * 0.3)
-    index_a = int(np.argmax(magnitude[:head]))
-    index_b = tail + int(np.argmax(magnitude[tail:]))
+    # 游标放在两个缺陷回波峰上：先取局部极大值，跳过始波区，再挑最高的两处。
+    candidates = [
+        index
+        for index in range(1, len(magnitude) - 1)
+        if magnitude[index] >= magnitude[index - 1]
+        and magnitude[index] > magnitude[index + 1]
+        and index > len(magnitude) * 0.1
+    ]
+    if len(candidates) >= 2:
+        peaks = sorted(candidates, key=lambda index: magnitude[index], reverse=True)[:2]
+        index_a, index_b = sorted(peaks)
+    else:
+        head = max(4, int(len(magnitude) * 0.2))
+        tail = int(len(magnitude) * 0.3)
+        index_a = int(np.argmax(magnitude[:head]))
+        index_b = tail + int(np.argmax(magnitude[tail:]))
     window.cursorLineA.setValue(float(x_values[index_a]))
     window.cursorLineB.setValue(float(x_values[index_b]))
     for _ in range(3):
@@ -748,20 +968,23 @@ def annotate_cursor_figure() -> None:
     window.hide()
 
 
-def generate_annotation_screenshots() -> None:
+def generate_annotation_screenshots(layout_root: Path) -> None:
     """重出两张带说明标注的 A-Scan 示意图。"""
-    annotate_gate_figure()
-    annotate_cursor_figure()
+    annotate_gate_figure(layout_root / "gate")
+    annotate_cursor_figure(layout_root / "cursor")
 
 
 def main() -> None:
     IMAGE_DIR.mkdir(parents=True, exist_ok=True)
     app = QApplication([])
     app.setStyleSheet(buildDarkIndustrialStyleSheet())
-    waveform_pixmap = generate_main_screenshots(app)
-    generate_dialog_screenshots(app, waveform_pixmap)
-    generate_feature_screenshots(app)
-    generate_annotation_screenshots()
+    # 布局与偏好写入临时目录，避免上一次运行保存的窗口布局影响插图结果。
+    with tempfile.TemporaryDirectory() as temporary_directory:
+        layout_root = Path(temporary_directory)
+        waveform_pixmap = generate_main_screenshots(app, layout_root / "main")
+        generate_dialog_screenshots(app, waveform_pixmap)
+        generate_feature_screenshots(app)
+        generate_annotation_screenshots(layout_root / "annotation")
     print(f"Screenshots written to {IMAGE_DIR}")
 
 
