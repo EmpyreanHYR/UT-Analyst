@@ -166,7 +166,7 @@ _STYLE_SHEET = Template("""
         background-color: #194c61;
     }
 
-    QDoubleSpinBox {
+    QSpinBox, QDoubleSpinBox {
         background-color: #111720;
         border: 1px solid #314252;
         border-radius: 5px;
@@ -176,19 +176,86 @@ _STYLE_SHEET = Template("""
         selection-background-color: #2f6d8a;
     }
 
-    QDoubleSpinBox:hover {
+    QSpinBox:hover, QDoubleSpinBox:hover {
         border-color: #476479;
     }
 
-    QDoubleSpinBox:focus {
+    QSpinBox:focus, QDoubleSpinBox:focus {
         border: 1px solid #4ca3c5;
         background-color: #121c27;
+    }
+
+    /* 多行文本输入：默认样式的白底会与浅色文字同色，这里统一成深底浅字 */
+    QTextEdit, QPlainTextEdit {
+        background-color: #111720;
+        color: $TEXT;
+        border: 1px solid #314252;
+        border-radius: 5px;
+        padding: 4px 6px;
+        selection-background-color: #2f6d8a;
     }
 
     QTableWidget {
         background-color: $BACKGROUND;
         alternate-background-color: $TABLE_ROW;
         color: $TEXT;
+    }
+
+    /* 表头：默认样式的浅灰底配浅色字读不清，统一改成深底橙字 */
+    QHeaderView::section {
+        background-color: #1b2530;
+        color: $ACCENT;
+        padding: 5px 8px;
+        border: none;
+        border-right: 1px solid #2a3744;
+        border-bottom: 1px solid #2a3744;
+        font-weight: 600;
+    }
+
+    QTableCornerButton::section {
+        background-color: #1b2530;
+        border: none;
+    }
+
+    QTableWidget::item:selected {
+        background-color: #22384b;
+        color: $TEXT;
+    }
+
+    /* B/C-Scan 等选项卡：默认样式的浅色标签在深色主题下只剩白块 */
+    QTabWidget::pane {
+        border: 1px solid #2c3a48;
+        background-color: $BACKGROUND;
+    }
+
+    QTabBar::tab {
+        background-color: #16202a;
+        color: $MUTED;
+        border: 1px solid #2c3a48;
+        border-bottom: none;
+        border-top-left-radius: 5px;
+        border-top-right-radius: 5px;
+        padding: 5px 14px;
+        margin-right: 3px;
+    }
+
+    QTabBar::tab:selected {
+        background-color: #1d2a36;
+        color: $ACCENT;
+        font-weight: 700;
+    }
+
+    QTabBar::tab:hover {
+        color: $ACCENT;
+    }
+
+    /* 下拉列表弹出层同样使用深色底，避免选中项在主界面之外变成白底浅字 */
+    QComboBox QAbstractItemView {
+        background-color: #16202a;
+        color: $TEXT;
+        border: 1px solid #2c3b4a;
+        selection-background-color: #22384b;
+        selection-color: $ACCENT;
     }
 
     QSplitter::handle {

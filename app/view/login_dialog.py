@@ -50,6 +50,8 @@ class LoginDialog(QDialog):
         buttons.button(QDialogButtonBox.Ok).setText(
             "创建管理员" if self.is_bootstrap else "登录"
         )
+        # Qt 标准按钮的文字来自系统语言包，这里显式写成中文，保证界面语言一致。
+        buttons.button(QDialogButtonBox.Cancel).setText("取消")
         buttons.accepted.connect(self.submit_credentials)
         buttons.rejected.connect(self.reject)
         root.addWidget(buttons)

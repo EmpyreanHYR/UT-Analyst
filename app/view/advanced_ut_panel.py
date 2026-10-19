@@ -30,25 +30,42 @@ class GateRow(QWidget):
     def __init__(self, gate: GateConfig, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.gate_id = gate.gate_id
-        layout = QHBoxLayout(self)
+
+        # 一个闸门占两行：上行是启停与状态，下行是三个参数微调框。这样在靠坞面板
+        # 常见的四百像素宽度下，数值不会因为同一行控件过多而被裁掉。
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        title_row = QHBoxLayout()
         self.enabled_checkbox = QCheckBox(gate.name)
         self.enabled_checkbox.setChecked(gate.enabled)
+        self.status_label = QLabel("未触发")
+        title_row.addWidget(self.enabled_checkbox)
+        title_row.addWidget(self.status_label)
+        title_row.addStretch(1)
+
         self.start_spinbox = self._depth_spinbox(gate.start_mm)
         self.width_spinbox = self._depth_spinbox(gate.width_mm)
         self.level_spinbox = QDoubleSpinBox()
         self.level_spinbox.setRange(0.0, 1.5)
         self.level_spinbox.setSingleStep(0.05)
         self.level_spinbox.setValue(gate.level)
-        self.status_label = QLabel("未触发")
+        for spinbox in (self.start_spinbox, self.width_spinbox, self.level_spinbox):
+            spinbox.setMinimumWidth(88)
 
-        layout.addWidget(self.enabled_checkbox)
-        layout.addWidget(QLabel("起点"))
-        layout.addWidget(self.start_spinbox)
-        layout.addWidget(QLabel("宽度"))
-        layout.addWidget(self.width_spinbox)
-        layout.addWidget(QLabel("门限"))
-        layout.addWidget(self.level_spinbox)
-        layout.addWidget(self.status_label)
+        param_row = QHBoxLayout()
+        param_row.setSpacing(6)
+        param_row.addWidget(QLabel("起点"))
+        param_row.addWidget(self.start_spinbox)
+        param_row.addWidget(QLabel("宽度"))
+        param_row.addWidget(self.width_spinbox)
+        param_row.addWidget(QLabel("门限"))
+        param_row.addWidget(self.level_spinbox)
+        param_row.addStretch(1)
+
+        layout.addLayout(title_row)
+        layout.addLayout(param_row)
 
         self.enabled_checkbox.toggled.connect(lambda _value: self.changed.emit(self.gate_id))
         self.start_spinbox.valueChanged.connect(lambda _value: self.changed.emit(self.gate_id))

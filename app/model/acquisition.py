@@ -245,6 +245,7 @@ class AcquisitionWorker(QObject):
         self.interval_ms = max(1, int(interval_ms))
         self._timer: QTimer | None = None
 
+    @pyqtSlot()
     def start(self) -> None:
         """Create and start the worker timer in the worker thread."""
         self.source.start()
@@ -253,6 +254,7 @@ class AcquisitionWorker(QObject):
             self._timer.timeout.connect(self._read_once)
         self._timer.start(self.interval_ms)
 
+    @pyqtSlot()
     def stop(self) -> None:
         """Stop the source and worker timer."""
         if self._timer is not None:

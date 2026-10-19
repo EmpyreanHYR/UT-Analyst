@@ -23,6 +23,13 @@ from app.common.plot_style import create_plot_widget
 from app.common.theme import ACCENT_COLOR, BACKGROUND_COLOR
 
 
+def _bin_start_label(label: Any) -> str:
+    """把“0-10mm”这类区间标签压成区间起点，避免窄面板上刻度文字互相重叠。"""
+    text = str(label)
+    head = text.split("-")[0].strip()
+    return head or text
+
+
 class StatisticsPanel(QWidget):
     """
     缺陷统计分析面板。
@@ -189,8 +196,8 @@ class StatisticsPanel(QWidget):
             y_values = list(depth_dist.values())
             self.depth_bargraph.setOpts(x=x_values, height=y_values, width=0.8)
 
-            # 设置x轴标签
-            labels = list(depth_dist.keys())
+            # 设置x轴标签（只写区间起点，单位已在横轴标题中标明）
+            labels = [_bin_start_label(key) for key in depth_dist]
             axis = self.depth_plot_widget.getAxis('bottom')
             ticks = [(i, label) for i, label in enumerate(labels)]
             axis.setTicks([ticks])
@@ -205,8 +212,8 @@ class StatisticsPanel(QWidget):
             y_values = list(amp_dist.values())
             self.amp_bargraph.setOpts(x=x_values, height=y_values, width=0.8)
 
-            # 设置x轴标签
-            labels = list(amp_dist.keys())
+            # 设置x轴标签（只写区间起点，单位已在横轴标题中标明）
+            labels = [_bin_start_label(key) for key in amp_dist]
             axis = self.amp_plot_widget.getAxis('bottom')
             ticks = [(i, label) for i, label in enumerate(labels)]
             axis.setTicks([ticks])

@@ -63,6 +63,9 @@ class FFTPanel(QWidget):
         self.fft_plot_widget.setLabel('bottom', '频率', units='Hz')
         self.fft_plot_widget.showGrid(x=True, y=True, alpha=0.3)
         self.fft_plot_widget.setBackground(BACKGROUND_COLOR)
+        # 频谱曲线是本面板的重点：给一个最小高度，并把布局的多余空间都留给它，
+        # 否则下方的参数分组会把频谱图压成一条窄带。
+        self.fft_plot_widget.setMinimumHeight(140)
 
         # 频谱曲线
         self.fft_curve = self.fft_plot_widget.plot(pen='g', width=2)
@@ -71,7 +74,7 @@ class FFTPanel(QWidget):
         self.peak_scatter = pg.ScatterPlotItem(size=10, pen='r', brush='r')
         self.fft_plot_widget.addItem(self.peak_scatter)
 
-        layout.addWidget(self.fft_plot_widget)
+        layout.addWidget(self.fft_plot_widget, 1)
 
         # 控制面板
         control_group = QGroupBox("频谱分析参数")

@@ -14,6 +14,7 @@ from PyQt5.QtWidgets import (
 )
 
 from app.common.auth import AuthService
+from app.common.time_format import format_display_time
 
 
 class AuditDialog(QDialog):
@@ -57,7 +58,7 @@ class AuditDialog(QDialog):
         self.table.setRowCount(len(events))
         for row, event in enumerate(events):
             values = [
-                event["created_at"],
+                format_display_time(event["created_at"]),
                 event["user_id"] or "",
                 event["action"],
                 event["entity_type"],
@@ -67,6 +68,12 @@ class AuditDialog(QDialog):
             for column, value in enumerate(values):
                 self.table.setItem(row, column, QTableWidgetItem(str(value)))
         self.table.resizeColumnsToContents()
+        # 六列都按内容宽度展开后，还要给行号列、边框和滚动条留出空间，
+        # 窗口按需放宽，否则最右侧的事件哈希会被裁掉。
+        chrome_width = self.table.verticalHeader().width() + 60
+        required_width = self.table.horizontalHeader().length() + chrome_width
+        if required_width > self.width():
+            self.resize(min(required_width, 1500), self.height())
 
     def verify_chain(self) -> None:
         """Verify that no historical audit event was modified."""

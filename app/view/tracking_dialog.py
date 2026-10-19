@@ -72,6 +72,8 @@ class TrackingDialog(QDialog):
             layout.addWidget(noteLabel)
 
         buttons = QDialogButtonBox(QDialogButtonBox.Close)
+        # Qt 标准按钮的文字来自系统语言包，这里显式写成中文，保证界面语言一致。
+        buttons.button(QDialogButtonBox.Close).setText("关闭")
         buttons.rejected.connect(self.reject)
         buttons.accepted.connect(self.accept)
         layout.addWidget(buttons)

@@ -16,6 +16,8 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from app.common.time_format import format_display_time
+
 
 class ReplayPanel(QWidget):
     """Select a saved session and navigate through stored frames."""
@@ -78,7 +80,7 @@ class ReplayPanel(QWidget):
         for session in sessions:
             label = (
                 f"{session.get('workpiece') or '未命名工件'} | "
-                f"{session.get('started_at', '')}"
+                f"{format_display_time(session.get('started_at', ''))}"
             )
             self.session_combo.addItem(label, session.get("id"))
         if current_id:

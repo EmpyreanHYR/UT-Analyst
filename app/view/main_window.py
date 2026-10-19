@@ -11,9 +11,11 @@ from app.view.advanced_ut_panel import AdvancedUTPanel
 from app.view.fft_panel import FFTPanel
 from app.view.replay_panel import ReplayPanel
 from app.view.scan_panel import ScanPanel
+from app.view.shortcut_help_dialog import ShortcutHelpDialog
 from app.view.statistics_panel import StatisticsPanel
 
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
@@ -96,7 +98,15 @@ class MainWindow(QMainWindow):
     signalFeaturesRequested = pyqtSignal()
     signalComparisonRequested = pyqtSignal()
 
-    def __init__(self) -> None:
+    def __init__(self, layout_config_dir: str | Path | None = None) -> None:
+        """
+        初始化主窗口。
+
+        参数：
+        - layout_config_dir: 布局与偏好文件的保存目录。默认沿用应用目录下的
+          config/；生成说明书插图时传入临时目录，可以避免上次运行保存的布局
+          影响截图结果。
+        """
         super().__init__()
         self.setWindowTitle("超声波智能辅助检测系统 V1.0")
         self.setMinimumSize(1360, 860)
@@ -135,7 +145,7 @@ class MainWindow(QMainWindow):
         self.clockTimer.timeout.connect(self._updateCurrentTime)
 
         # 布局管理器和快捷键管理器。
-        self.layoutManager = LayoutManager()
+        self.layoutManager = LayoutManager(layout_config_dir)
         self.shortcutManager = ShortcutManager(self)
 
         self._buildMenuBar()
@@ -271,6 +281,7 @@ class MainWindow(QMainWindow):
     def _buildToolBar(self) -> None:
         """构建工具栏和核心动作按钮。"""
         toolBar = QToolBar("主工具栏", self)
+        toolBar.setObjectName("mainToolBar")
         toolBar.setMovable(False)
         toolBar.setIconSize(QSize(24, 24))
         toolBar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
@@ -442,6 +453,7 @@ class MainWindow(QMainWindow):
     def _buildControlDock(self) -> None:
         """构建右侧控制面板（DockWidget）。"""
         self.controlDockWidget = QDockWidget("检测控制面板", self)
+        self.controlDockWidget.setObjectName("controlDockWidget")
         self.controlDockWidget.setAllowedAreas(Qt.RightDockWidgetArea)
 
         dockContainer = QWidget(self.controlDockWidget)
@@ -486,6 +498,10 @@ class MainWindow(QMainWindow):
         self.customVelocitySpinBox.setSuffix(" m/s")
         self.customVelocitySpinBox.setVisible(False)
 
+        # 行标签与微调框一起显示/隐藏，否则非“自定义”模式下会留下一个空行。
+        self.customVelocityLabel = QLabel("自定义声速", dockContainer)
+        self.customVelocityLabel.setVisible(False)
+
         # 探头中心频率（MHz）：用于控制仿真波形周期快慢。
         self.pulseFrequencyMhzSpinBox = QDoubleSpinBox(dockContainer)
         self.pulseFrequencyMhzSpinBox.setRange(0.50, 10.00)
@@ -511,7 +527,7 @@ class MainWindow(QMainWindow):
         formLayout.addRow("探头频率", self.pulseFrequencyMhzSpinBox)
         formLayout.addRow("刷新间隔", self.refreshIntervalMsSpinBox)
         formLayout.addRow("声速设置", self.velocityComboBox)
-        formLayout.addRow("自定义声速", self.customVelocitySpinBox)
+        formLayout.addRow(self.customVelocityLabel, self.customVelocitySpinBox)
 
         dockLayout.addLayout(formLayout)
         dockLayout.addWidget(self.applyParametersButton)
@@ -680,6 +696,7 @@ class MainWindow(QMainWindow):
 
         # 创建FFT频谱分析面板（底部DockWidget）
         self.fftDockWidget = QDockWidget("频谱分析", self)
+        self.fftDockWidget.setObjectName("fftDockWidget")
         self.fftDockWidget.setAllowedAreas(Qt.BottomDockWidgetArea)
 
         self.fftPanel = FFTPanel(self.fftDockWidget)
@@ -691,6 +708,7 @@ class MainWindow(QMainWindow):
 
         # 创建缺陷统计分析面板（左侧DockWidget）
         self.statisticsDockWidget = QDockWidget("缺陷统计分析", self)
+        self.statisticsDockWidget.setObjectName("statisticsDockWidget")
         self.statisticsDockWidget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
 
         self.statisticsPanel = StatisticsPanel(self.statisticsDockWidget)
@@ -701,6 +719,7 @@ class MainWindow(QMainWindow):
         self.statisticsDockWidget.setVisible(False)
 
         self.replayDockWidget = QDockWidget("数据回放", self)
+        self.replayDockWidget.setObjectName("replayDockWidget")
         self.replayDockWidget.setAllowedAreas(Qt.BottomDockWidgetArea)
         self.replayPanel = ReplayPanel(self.replayDockWidget)
         self.replayDockWidget.setWidget(self.replayPanel)
@@ -708,6 +727,7 @@ class MainWindow(QMainWindow):
         self.replayDockWidget.setVisible(False)
 
         self.advancedUTDockWidget = QDockWidget("多闸门与TCG", self)
+        self.advancedUTDockWidget.setObjectName("advancedUTDockWidget")
         self.advancedUTDockWidget.setAllowedAreas(Qt.LeftDockWidgetArea | Qt.RightDockWidgetArea)
         self.advancedUTPanel = AdvancedUTPanel(self.advancedUTDockWidget)
         self.advancedUTDockWidget.setWidget(self.advancedUTPanel)
@@ -715,11 +735,17 @@ class MainWindow(QMainWindow):
         self.advancedUTDockWidget.setVisible(False)
 
         self.scanDockWidget = QDockWidget("B/C-Scan成像", self)
+        self.scanDockWidget.setObjectName("scanDockWidget")
         self.scanDockWidget.setAllowedAreas(Qt.BottomDockWidgetArea)
         self.scanPanel = ScanPanel(self.scanDockWidget)
         self.scanDockWidget.setWidget(self.scanPanel)
         self.addDockWidget(Qt.BottomDockWidgetArea, self.scanDockWidget)
         self.scanDockWidget.setVisible(False)
+
+        # 底部靠坞面板只占中间一列：否则它会横跨整个窗口宽度，被左右两侧的
+        # 面板压住一部分，面板内的表单会按整窗宽度排版、可见部分只剩半截控件。
+        self.setCorner(Qt.BottomLeftCorner, Qt.LeftDockWidgetArea)
+        self.setCorner(Qt.BottomRightCorner, Qt.RightDockWidgetArea)
 
     def _buildStatusBar(self) -> None:
         """
@@ -909,6 +935,7 @@ class MainWindow(QMainWindow):
         """声速模式切换逻辑。"""
         isCustomMode = currentIndex == 2
         self.customVelocitySpinBox.setVisible(isCustomMode)
+        self.customVelocityLabel.setVisible(isCustomMode)
 
     def _toDepthMm(self, timeUs: float) -> float:
         """将传播时间(us)转换为等效深度(mm)。委托给统一换算模块。"""
@@ -1664,19 +1691,8 @@ class MainWindow(QMainWindow):
 
     def _showShortcutHelp(self) -> None:
         """显示快捷键帮助对话框。"""
-        tips = self.shortcutManager.get_shortcut_tips()
-        lines = ["<h3>快捷键一览</h3><table border='1' cellpadding='5' cellspacing='0' style='border-collapse:collapse;'>"]
-        lines.append("<tr><th>功能</th><th>快捷键</th></tr>")
-        for _, desc, shortcut in tips:
-            lines.append(f"<tr><td>{desc}</td><td><b>{shortcut}</b></td></tr>")
-        lines.append("</table>")
-        html = "".join(lines)
-
-        msg_box = QMessageBox(self)
-        msg_box.setWindowTitle("快捷键帮助")
-        msg_box.setTextFormat(Qt.RichText)
-        msg_box.setText(html)
-        msg_box.exec_()
+        dialog = ShortcutHelpDialog(self.shortcutManager.get_shortcut_tips(), self)
+        dialog.exec_()
 
     @staticmethod
     def _buildStatusSeparator() -> QLabel:
